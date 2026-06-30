@@ -12,7 +12,7 @@ A KDE Plasma 6 widget that displays your Claude Code usage statistics in the tas
 - **Detailed Popup**: Click to see full statistics
   - Session and weekly usage with progress bars
   - Reset times for both limits
-  - Per-model breakdown (Sonnet/Opus)
+  - Opus weekly limit breakdown (when the API reports it)
   - Your subscription plan badge
 - **Configurable Refresh**: Default 5 min polling (adjustable in settings)
 - **Smart Rate Limit Handling**: Uses `retry-after` header, exponential backoff, and token watcher for automatic recovery

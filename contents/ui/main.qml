@@ -17,7 +17,6 @@ PlasmoidItem {
 
     property real sessionUsagePercent: 0
     property real weeklyUsagePercent: 0
-    property real sonnetWeeklyPercent: 0
     property real opusWeeklyPercent: 0
     property string lastUpdate: ""
     property string planName: ""
@@ -30,7 +29,6 @@ PlasmoidItem {
     property bool isLoading: false
     property var sessionResetTime: null
     property var weeklyResetTime: null
-    property bool hasSonnetData: false
     property bool hasOpusData: false
     property bool hasTokenError: false
     property bool hasRateLimitError: false
@@ -69,9 +67,7 @@ PlasmoidItem {
                     if (age < 86400000) { // less than 24 hours old
                         root.sessionUsagePercent = cache.session || 0
                         root.weeklyUsagePercent = cache.weekly || 0
-                        root.sonnetWeeklyPercent = cache.sonnet || 0
                         root.opusWeeklyPercent = cache.opus || 0
-                        root.hasSonnetData = cache.hasSonnet || false
                         root.hasOpusData = cache.hasOpus || false
                         root.planName = cache.plan || ""
                         root.sessionReset = cache.sessionReset || ""
@@ -96,9 +92,7 @@ PlasmoidItem {
         var cache = {
             session: root.sessionUsagePercent,
             weekly: root.weeklyUsagePercent,
-            sonnet: root.sonnetWeeklyPercent,
             opus: root.opusWeeklyPercent,
-            hasSonnet: root.hasSonnetData,
             hasOpus: root.hasOpusData,
             plan: root.planName,
             sessionReset: root.sessionReset,
@@ -307,9 +301,7 @@ PlasmoidItem {
 
                         root.sessionUsagePercent = fiveHour.utilization || 0
                         root.weeklyUsagePercent = sevenDay.utilization || 0
-                        root.hasSonnetData = !!data.seven_day_sonnet
                         root.hasOpusData = !!data.seven_day_opus
-                        root.sonnetWeeklyPercent = root.hasSonnetData ? (data.seven_day_sonnet.utilization || 0) : 0
                         root.opusWeeklyPercent = root.hasOpusData ? (data.seven_day_opus.utilization || 0) : 0
 
                         if (fiveHour.resets_at) {
@@ -481,32 +473,6 @@ PlasmoidItem {
                 opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
             }
 
-            // Separator before sonnet (text)
-            PlasmaComponents.Label {
-                visible: !root.isVerticalLayout && (!Plasmoid.configuration.panelStyle || Plasmoid.configuration.panelStyle === "text") && (Plasmoid.configuration.showSonnet === true) && ((Plasmoid.configuration.showSession !== false) || (Plasmoid.configuration.showWeekly !== false)) && (root.errorMsg === "" || root.hasTokenError || root.hasRateLimitError)
-                text: "|"
-                opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.25 : root.isStale ? 0.35 : 0.5
-                font.pixelSize: Kirigami.Theme.defaultFont.pixelSize
-            }
-
-            // Sonnet usage (text)
-            Rectangle {
-                visible: (!Plasmoid.configuration.panelStyle || Plasmoid.configuration.panelStyle === "text") && (Plasmoid.configuration.showSonnet === true) && (root.errorMsg === "" || root.hasTokenError || root.hasRateLimitError)
-                Layout.preferredWidth: 10
-                Layout.preferredHeight: 10
-                radius: 5
-                color: getUsageColor(root.sonnetWeeklyPercent)
-                opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
-            }
-
-            PlasmaComponents.Label {
-                visible: (!Plasmoid.configuration.panelStyle || Plasmoid.configuration.panelStyle === "text") && (Plasmoid.configuration.showSonnet === true) && (root.errorMsg === "" || root.hasTokenError || root.hasRateLimitError)
-                text: Math.round(root.sonnetWeeklyPercent) + "%"
-                font.pixelSize: Kirigami.Theme.defaultFont.pixelSize
-                font.bold: true
-                opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
-            }
-
             // === CIRCULAR STYLE ===
 
             // Session (circular)
@@ -556,32 +522,6 @@ PlasmoidItem {
                 PlasmaComponents.Label {
                     anchors.centerIn: parent
                     text: Math.round(root.weeklyUsagePercent)
-                    font.pixelSize: 9
-                    font.bold: true
-                }
-            }
-
-            // Sonnet (circular)
-            Item {
-                visible: Plasmoid.configuration.panelStyle === "circular" && (Plasmoid.configuration.showSonnet === true) && (root.errorMsg === "" || root.hasTokenError || root.hasRateLimitError)
-                Layout.preferredWidth: 28
-                Layout.preferredHeight: 28
-                opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
-
-                Canvas {
-                    anchors.fill: parent
-                    onPaint: {
-                        var ctx = getContext("2d")
-                        drawCircularProgress(ctx, width, height, root.sonnetWeeklyPercent)
-                    }
-                    property real _percent: root.sonnetWeeklyPercent
-                    on_PercentChanged: requestPaint()
-                    Component.onCompleted: requestPaint()
-                }
-
-                PlasmaComponents.Label {
-                    anchors.centerIn: parent
-                    text: Math.round(root.sonnetWeeklyPercent)
                     font.pixelSize: 9
                     font.bold: true
                 }
@@ -650,39 +590,6 @@ PlasmoidItem {
                 PlasmaComponents.Label {
                     anchors.centerIn: parent
                     text: Math.round(root.weeklyUsagePercent)
-                    font.pixelSize: 9
-                    font.bold: true
-                }
-            }
-
-            // Sonnet (bar)
-            Item {
-                visible: Plasmoid.configuration.panelStyle === "bar" && (Plasmoid.configuration.showSonnet === true) && (root.errorMsg === "" || root.hasTokenError || root.hasRateLimitError)
-                Layout.preferredWidth: 32
-                Layout.preferredHeight: parent.height
-                opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
-
-                Rectangle {
-                    anchors.fill: parent
-                    radius: 3
-                    color: Kirigami.Theme.backgroundColor
-                    border.color: Kirigami.Theme.disabledTextColor
-                    border.width: 1
-
-                    Rectangle {
-                        anchors.bottom: parent.bottom
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.margins: 1
-                        height: Math.max((parent.height - 2) * Math.min(root.sonnetWeeklyPercent / 100, 1), 1)
-                        radius: 2
-                        color: getUsageColor(root.sonnetWeeklyPercent)
-                    }
-                }
-
-                PlasmaComponents.Label {
-                    anchors.centerIn: parent
-                    text: Math.round(root.sonnetWeeklyPercent)
                     font.pixelSize: 9
                     font.bold: true
                 }
@@ -927,36 +834,6 @@ PlasmoidItem {
                 font.pixelSize: Kirigami.Theme.smallFont.pixelSize
             }
 
-            // Sonnet
-            RowLayout {
-                Layout.fillWidth: true
-                visible: root.hasSonnetData
-
-                PlasmaComponents.Label {
-                    text: i18n.tr("Sonnet")
-                }
-                Item { Layout.fillWidth: true }
-                Rectangle {
-                    Layout.preferredWidth: 60
-                    height: 8
-                    radius: 3
-                    color: Kirigami.Theme.backgroundColor
-                    border.color: Kirigami.Theme.disabledTextColor
-                    border.width: 1
-                    Rectangle {
-                        width: parent.width * Math.min(root.sonnetWeeklyPercent / 100, 1)
-                        height: parent.height
-                        radius: 3
-                        color: getUsageColor(root.sonnetWeeklyPercent)
-                    }
-                }
-                PlasmaComponents.Label {
-                    text: Math.round(root.sonnetWeeklyPercent) + "%"
-                    Layout.preferredWidth: 40
-                    horizontalAlignment: Text.AlignRight
-                }
-            }
-
             // Opus
             RowLayout {
                 Layout.fillWidth: true
@@ -989,7 +866,7 @@ PlasmoidItem {
 
             // No model data message
             PlasmaComponents.Label {
-                visible: !root.hasSonnetData && !root.hasOpusData
+                visible: !root.hasOpusData
                 text: i18n.tr("No model breakdown available")
                 font.pixelSize: Kirigami.Theme.smallFont.pixelSize
                 color: Kirigami.Theme.disabledTextColor
@@ -1156,8 +1033,6 @@ PlasmoidItem {
             parts.push(i18n.tr("Session (5hr)") + ": " + Math.round(root.sessionUsagePercent) + "%")
         if (Plasmoid.configuration.showWeekly !== false)
             parts.push(i18n.tr("Weekly (7day)") + ": " + Math.round(root.weeklyUsagePercent) + "%")
-        if (Plasmoid.configuration.showSonnet === true)
-            parts.push(i18n.tr("Sonnet") + ": " + Math.round(root.sonnetWeeklyPercent) + "%")
         return parts.join(" | ")
     }
 }

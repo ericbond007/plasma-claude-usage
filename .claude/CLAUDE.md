@@ -43,10 +43,6 @@ The `anthropic-beta: oauth-2025-04-20` header is **required** - without it the A
     "utilization": 89.0,
     "resets_at": "2025-12-01T19:00:00+00:00"
   },
-  "seven_day_sonnet": {
-    "utilization": 31.0,
-    "resets_at": "..."
-  },
   "seven_day_opus": null
 }
 ```
