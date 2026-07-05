@@ -34,6 +34,10 @@
             <label>Show weekly (7day) usage in panel</label>
             <default>true</default>
         </entry>
+        <entry name="showFable" type="Bool">
+            <label>Show Fable weekly usage in panel</label>
+            <default>false</default>
+        </entry>
         <entry name="baseUrl" type="String">
             <label>Custom API base URL (leave empty to use ~/.claude/.credentials.json)</label>
             <default></default>

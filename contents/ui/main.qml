@@ -17,7 +17,7 @@ PlasmoidItem {
 
     property real sessionUsagePercent: 0
     property real weeklyUsagePercent: 0
-    property real opusWeeklyPercent: 0
+    property real fableWeeklyPercent: 0
     property string lastUpdate: ""
     property string planName: ""
     property string sessionReset: ""
@@ -29,7 +29,7 @@ PlasmoidItem {
     property bool isLoading: false
     property var sessionResetTime: null
     property var weeklyResetTime: null
-    property bool hasOpusData: false
+    property bool hasFableData: false
     property bool hasTokenError: false
     property bool hasRateLimitError: false
     property int rateLimitRetryCount: 0
@@ -67,8 +67,8 @@ PlasmoidItem {
                     if (age < 86400000) { // less than 24 hours old
                         root.sessionUsagePercent = cache.session || 0
                         root.weeklyUsagePercent = cache.weekly || 0
-                        root.opusWeeklyPercent = cache.opus || 0
-                        root.hasOpusData = cache.hasOpus || false
+                        root.fableWeeklyPercent = cache.fable || 0
+                        root.hasFableData = cache.hasFable || false
                         root.planName = cache.plan || ""
                         root.sessionReset = cache.sessionReset || ""
                         root.weeklyReset = cache.weeklyReset || ""
@@ -92,8 +92,8 @@ PlasmoidItem {
         var cache = {
             session: root.sessionUsagePercent,
             weekly: root.weeklyUsagePercent,
-            opus: root.opusWeeklyPercent,
-            hasOpus: root.hasOpusData,
+            fable: root.fableWeeklyPercent,
+            hasFable: root.hasFableData,
             plan: root.planName,
             sessionReset: root.sessionReset,
             weeklyReset: root.weeklyReset,
@@ -301,8 +301,20 @@ PlasmoidItem {
 
                         root.sessionUsagePercent = fiveHour.utilization || 0
                         root.weeklyUsagePercent = sevenDay.utilization || 0
-                        root.hasOpusData = !!data.seven_day_opus
-                        root.opusWeeklyPercent = root.hasOpusData ? (data.seven_day_opus.utilization || 0) : 0
+                        // Fable weekly usage lives in the limits[] array as a
+                        // "weekly_scoped" entry scoped to the Fable model. The old
+                        // seven_day_<model> fields are deprecated (always null).
+                        root.hasFableData = false
+                        root.fableWeeklyPercent = 0
+                        var limits = data.limits || []
+                        for (var li = 0; li < limits.length; li++) {
+                            var lim = limits[li]
+                            if (lim && lim.kind === "weekly_scoped" && lim.scope && lim.scope.model && lim.scope.model.display_name === "Fable") {
+                                root.hasFableData = true
+                                root.fableWeeklyPercent = lim.percent || 0
+                                break
+                            }
+                        }
 
                         if (fiveHour.resets_at) {
                             root.sessionResetTime = new Date(fiveHour.resets_at)
@@ -473,6 +485,32 @@ PlasmoidItem {
                 opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
             }
 
+            // Separator before fable (text)
+            PlasmaComponents.Label {
+                visible: !root.isVerticalLayout && (!Plasmoid.configuration.panelStyle || Plasmoid.configuration.panelStyle === "text") && (Plasmoid.configuration.showFable === true) && ((Plasmoid.configuration.showSession !== false) || (Plasmoid.configuration.showWeekly !== false)) && (root.errorMsg === "" || root.hasTokenError || root.hasRateLimitError)
+                text: "|"
+                opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.25 : root.isStale ? 0.35 : 0.5
+                font.pixelSize: Kirigami.Theme.defaultFont.pixelSize
+            }
+
+            // Fable usage (text)
+            Rectangle {
+                visible: (!Plasmoid.configuration.panelStyle || Plasmoid.configuration.panelStyle === "text") && (Plasmoid.configuration.showFable === true) && (root.errorMsg === "" || root.hasTokenError || root.hasRateLimitError)
+                Layout.preferredWidth: 10
+                Layout.preferredHeight: 10
+                radius: 5
+                color: getUsageColor(root.fableWeeklyPercent)
+                opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+            }
+
+            PlasmaComponents.Label {
+                visible: (!Plasmoid.configuration.panelStyle || Plasmoid.configuration.panelStyle === "text") && (Plasmoid.configuration.showFable === true) && (root.errorMsg === "" || root.hasTokenError || root.hasRateLimitError)
+                text: Math.round(root.fableWeeklyPercent) + "%"
+                font.pixelSize: Kirigami.Theme.defaultFont.pixelSize
+                font.bold: true
+                opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+            }
+
             // === CIRCULAR STYLE ===
 
             // Session (circular)
@@ -522,6 +560,32 @@ PlasmoidItem {
                 PlasmaComponents.Label {
                     anchors.centerIn: parent
                     text: Math.round(root.weeklyUsagePercent)
+                    font.pixelSize: 9
+                    font.bold: true
+                }
+            }
+
+            // Fable (circular)
+            Item {
+                visible: Plasmoid.configuration.panelStyle === "circular" && (Plasmoid.configuration.showFable === true) && (root.errorMsg === "" || root.hasTokenError || root.hasRateLimitError)
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 28
+                opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+
+                Canvas {
+                    anchors.fill: parent
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        drawCircularProgress(ctx, width, height, root.fableWeeklyPercent)
+                    }
+                    property real _percent: root.fableWeeklyPercent
+                    on_PercentChanged: requestPaint()
+                    Component.onCompleted: requestPaint()
+                }
+
+                PlasmaComponents.Label {
+                    anchors.centerIn: parent
+                    text: Math.round(root.fableWeeklyPercent)
                     font.pixelSize: 9
                     font.bold: true
                 }
@@ -590,6 +654,39 @@ PlasmoidItem {
                 PlasmaComponents.Label {
                     anchors.centerIn: parent
                     text: Math.round(root.weeklyUsagePercent)
+                    font.pixelSize: 9
+                    font.bold: true
+                }
+            }
+
+            // Fable (bar)
+            Item {
+                visible: Plasmoid.configuration.panelStyle === "bar" && (Plasmoid.configuration.showFable === true) && (root.errorMsg === "" || root.hasTokenError || root.hasRateLimitError)
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: parent.height
+                opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 3
+                    color: Kirigami.Theme.backgroundColor
+                    border.color: Kirigami.Theme.disabledTextColor
+                    border.width: 1
+
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.margins: 1
+                        height: Math.max((parent.height - 2) * Math.min(root.fableWeeklyPercent / 100, 1), 1)
+                        radius: 2
+                        color: getUsageColor(root.fableWeeklyPercent)
+                    }
+                }
+
+                PlasmaComponents.Label {
+                    anchors.centerIn: parent
+                    text: Math.round(root.fableWeeklyPercent)
                     font.pixelSize: 9
                     font.bold: true
                 }
@@ -834,13 +931,13 @@ PlasmoidItem {
                 font.pixelSize: Kirigami.Theme.smallFont.pixelSize
             }
 
-            // Opus
+            // Fable
             RowLayout {
                 Layout.fillWidth: true
-                visible: root.hasOpusData
+                visible: root.hasFableData
 
                 PlasmaComponents.Label {
-                    text: i18n.tr("Opus")
+                    text: i18n.tr("Fable")
                 }
                 Item { Layout.fillWidth: true }
                 Rectangle {
@@ -851,14 +948,14 @@ PlasmoidItem {
                     border.color: Kirigami.Theme.disabledTextColor
                     border.width: 1
                     Rectangle {
-                        width: parent.width * Math.min(root.opusWeeklyPercent / 100, 1)
+                        width: parent.width * Math.min(root.fableWeeklyPercent / 100, 1)
                         height: parent.height
                         radius: 3
-                        color: getUsageColor(root.opusWeeklyPercent)
+                        color: getUsageColor(root.fableWeeklyPercent)
                     }
                 }
                 PlasmaComponents.Label {
-                    text: Math.round(root.opusWeeklyPercent) + "%"
+                    text: Math.round(root.fableWeeklyPercent) + "%"
                     Layout.preferredWidth: 40
                     horizontalAlignment: Text.AlignRight
                 }
@@ -866,7 +963,7 @@ PlasmoidItem {
 
             // No model data message
             PlasmaComponents.Label {
-                visible: !root.hasOpusData
+                visible: !root.hasFableData
                 text: i18n.tr("No model breakdown available")
                 font.pixelSize: Kirigami.Theme.smallFont.pixelSize
                 color: Kirigami.Theme.disabledTextColor
@@ -1033,6 +1130,8 @@ PlasmoidItem {
             parts.push(i18n.tr("Session (5hr)") + ": " + Math.round(root.sessionUsagePercent) + "%")
         if (Plasmoid.configuration.showWeekly !== false)
             parts.push(i18n.tr("Weekly (7day)") + ": " + Math.round(root.weeklyUsagePercent) + "%")
+        if (Plasmoid.configuration.showFable === true)
+            parts.push(i18n.tr("Fable") + ": " + Math.round(root.fableWeeklyPercent) + "%")
         return parts.join(" | ")
     }
 }

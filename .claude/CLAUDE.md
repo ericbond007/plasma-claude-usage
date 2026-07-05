@@ -33,17 +33,29 @@ The `anthropic-beta: oauth-2025-04-20` header is **required** - without it the A
 
 ## Response Structure
 
+`five_hour` (session) and `seven_day` (weekly, all models) carry the top-level
+utilization. The legacy per-model fields (`seven_day_opus`, `seven_day_sonnet`,
+…) are **deprecated and now always `null`** — per-model weekly usage moved into
+the `limits[]` array. The **Fable** tracker reads the `weekly_scoped` entry whose
+`scope.model.display_name` is `"Fable"` (its `percent`, an integer — not a
+`utilization` float).
+
 ```json
 {
-  "five_hour": {
-    "utilization": 14.0,
-    "resets_at": "2025-11-29T19:00:00+00:00"
-  },
-  "seven_day": {
-    "utilization": 89.0,
-    "resets_at": "2025-12-01T19:00:00+00:00"
-  },
-  "seven_day_opus": null
+  "five_hour": { "utilization": 44.0, "resets_at": "..." },
+  "seven_day": { "utilization": 26.0, "resets_at": "..." },
+
+  "seven_day_opus": null,
+  "seven_day_sonnet": null,
+
+  "limits": [
+    { "kind": "session",    "group": "session", "percent": 44, "resets_at": "..." },
+    { "kind": "weekly_all", "group": "weekly",  "percent": 26, "resets_at": "..." },
+    {
+      "kind": "weekly_scoped", "group": "weekly", "percent": 33, "resets_at": "...",
+      "scope": { "model": { "id": null, "display_name": "Fable" } }
+    }
+  ]
 }
 ```
 

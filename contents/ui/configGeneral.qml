@@ -19,6 +19,7 @@ KCM.SimpleKCM {
     property string cfg_panelStyle
     property bool cfg_showSession
     property bool cfg_showWeekly
+    property bool cfg_showFable
     property string cfg_baseUrl
     property string cfg_apiKey
     property double cfg_backgroundOpacity
@@ -125,6 +126,12 @@ KCM.SimpleKCM {
             text: tr("Weekly (7day)")
             checked: cfg_showWeekly
             onCheckedChanged: cfg_showWeekly = checked
+        }
+
+        QQC2.CheckBox {
+            text: tr("Fable")
+            checked: cfg_showFable
+            onCheckedChanged: cfg_showFable = checked
         }
 
         RowLayout {
