@@ -103,6 +103,187 @@ PlasmoidItem {
     property var installations: []
     property var alertedThresholds: ({})
 
+    // Codex (fork addition): rate limits read from the local Codex CLI via
+    // contents/scripts/codex-usage.sh (codex app-server, account/rateLimits/read).
+    property real codexSessionUsagePercent: 0
+    property real codexWeeklyUsagePercent: 0
+    property bool codexHasSessionData: false
+    property bool codexHasWeeklyData: false
+    property string codexPlanName: ""
+    property string codexErrorMsg: ""
+    property double codexLastSuccessTime: 0
+    property bool codexCliMissing: false
+    property var codexSessionResetTime: null
+    property var codexWeeklyResetTime: null
+    property real codexSessionWindowMs: 18000000
+    property real codexWeeklyWindowMs: 604800000
+    readonly property bool codexEnabled: Plasmoid.configuration.enableCodex !== false
+    // Same rule as Claude's isStale: older than three refresh intervals.
+    readonly property bool codexIsStale: root.codexLastSuccessTime > 0
+        && (root.nowTick - root.codexLastSuccessTime) > Math.max(Plasmoid.configuration.refreshInterval || 5, 1) * 60000 * 3
+    readonly property real codexPanelOpacity: root.codexErrorMsg !== "" ? 0.5 : (root.codexIsStale ? 0.6 : 1.0)
+    readonly property real codexSessionTimePct: elapsedPct(root.codexSessionResetTime, root.codexSessionWindowMs)
+    readonly property real codexWeeklyTimePct: elapsedPct(root.codexWeeklyResetTime, root.codexWeeklyWindowMs)
+    readonly property bool showCodexSessionMetric: root.codexEnabled
+        && Plasmoid.configuration.showCodexSession !== false && root.codexHasSessionData
+    readonly property bool showCodexWeeklyMetric: root.codexEnabled
+        && Plasmoid.configuration.showCodexWeekly !== false && root.codexHasWeeklyData
+    readonly property bool showCodexInPanel: root.showCodexSessionMetric || root.showCodexWeeklyMetric
+    // "Weekly" in the codex* names means the longer window: 7 days on paid plans,
+    // 30 days on the free plan. Labels come from the reported window length.
+    readonly property string codexSessionLabel: codexWindowLabel(root.codexSessionWindowMs)
+    readonly property string codexWeeklyLabel: codexWindowLabel(root.codexWeeklyWindowMs)
+
+    function codexWindowLabel(ms) {
+        var m = Math.round(ms / 60000)
+        if (m > 0 && m % 1440 === 0) return (m / 1440) + "d"
+        if (m > 0 && m % 60 === 0) return (m / 60) + "h"
+        return m + "m"
+    }
+
+    function codexWindowInfo(isSession) {
+        return isSession
+            ? { label: codexRowTitle(true), percent: root.codexSessionUsagePercent, available: root.codexHasSessionData,
+                resetTime: root.codexSessionResetTime, timePct: root.codexSessionTimePct, alwaysShow: false, tick: root.nowTick }
+            : { label: codexRowTitle(false), percent: root.codexWeeklyUsagePercent, available: root.codexHasWeeklyData,
+                resetTime: root.codexWeeklyResetTime, timePct: root.codexWeeklyTimePct, alwaysShow: true, tick: root.nowTick }
+    }
+
+    function codexRowTitle(isSession) {
+        var name = isSession ? i18n.tr("Session")
+            : (Math.round(root.codexWeeklyWindowMs / 60000) === 10080 ? i18n.tr("Weekly") : i18n.tr("Limit"))
+        return name + " (" + (isSession ? root.codexSessionLabel : root.codexWeeklyLabel) + ")"
+    }
+
+    Plasma5Support.DataSource {
+        id: codexReader
+        engine: "executable"
+        connectedSources: []
+
+        onNewData: function(sourceName, data) {
+            var stdout = (data["stdout"] || "").trim()
+            disconnectSource(sourceName)
+            try {
+                var response = JSON.parse(stdout)
+                if (response.error && !response.result) {
+                    var err = response.error
+                    var msg = typeof err === "string" ? err : (err.message || JSON.stringify(err))
+                    root.codexCliMissing = msg === "Codex CLI not installed"
+                    if (root.codexCliMissing) {
+                        // No CLI means no Codex at all: drop cached numbers instead of showing them
+                        // for a day, and persist that once (not every tick, and never before the
+                        // startup cache read has delivered anything to clear).
+                        var hadCodex = root.codexHasSessionData || root.codexHasWeeklyData || root.codexLastSuccessTime > 0
+                        root.codexHasSessionData = false
+                        root.codexHasWeeklyData = false
+                        root.codexLastSuccessTime = 0
+                        if (hadCodex) saveCache()
+                    }
+                    root.codexErrorMsg = msg
+                    return
+                }
+                var limits = (response.result || {}).rateLimits || {}
+                var windows = [limits.primary, limits.secondary]
+                var sessionWindow = null
+                var weeklyWindow = null
+                for (var wi = 0; wi < windows.length; wi++) {
+                    var w = windows[wi]
+                    var duration = w ? (w.windowDurationMins || 0) : 0
+                    if (duration > 0 && duration <= 1440 && !sessionWindow)
+                        sessionWindow = w
+                    else if (duration > 1440 && !weeklyWindow)
+                        weeklyWindow = w
+                }
+                // windowDurationMins is optional in the app-server schema: a window without
+                // it fills a still-empty slot by position (primary = session, secondary = longer).
+                if (limits.primary && !limits.primary.windowDurationMins && !sessionWindow)
+                    sessionWindow = limits.primary
+                if (limits.secondary && !limits.secondary.windowDurationMins && !weeklyWindow)
+                    weeklyWindow = limits.secondary
+                root.codexHasSessionData = sessionWindow !== null
+                root.codexHasWeeklyData = weeklyWindow !== null
+                root.codexSessionUsagePercent = sessionWindow ? (sessionWindow.usedPercent || 0) : 0
+                root.codexWeeklyUsagePercent = weeklyWindow ? (weeklyWindow.usedPercent || 0) : 0
+                root.codexSessionWindowMs = sessionWindow && sessionWindow.windowDurationMins ? sessionWindow.windowDurationMins * 60000 : 18000000
+                root.codexWeeklyWindowMs = weeklyWindow && weeklyWindow.windowDurationMins ? weeklyWindow.windowDurationMins * 60000 : 604800000
+                root.codexPlanName = formatCodexPlanName(limits.planType || "")
+                root.codexSessionResetTime = sessionWindow && sessionWindow.resetsAt ? new Date(sessionWindow.resetsAt * 1000) : null
+                root.codexWeeklyResetTime = weeklyWindow && weeklyWindow.resetsAt ? new Date(weeklyWindow.resetsAt * 1000) : null
+                root.codexLastSuccessTime = Date.now()
+                root.codexCliMissing = false
+                root.codexErrorMsg = ""
+                saveCache()
+                console.log("Claude Usage: Codex success - session:", root.codexSessionUsagePercent, "weekly:", root.codexWeeklyUsagePercent)
+            } catch (e) {
+                root.codexErrorMsg = stdout ? "Codex response error" : "Codex usage request failed"
+                console.log("Claude Usage: Codex parse error:", e)
+            }
+        }
+    }
+
+    function fetchCodexUsage() {
+        if (!root.codexEnabled) return
+        var script = Qt.resolvedUrl("../scripts/codex-usage.sh").toString().replace("file://", "")
+        codexReader.connectSource("bash " + root.shQuotePath(script))
+    }
+
+    function formatCodexPlanName(plan) {
+        if (!plan) return ""
+        return plan.split("_").map(function(word) {
+            return word.charAt(0).toUpperCase() + word.slice(1)
+        }).join(" ")
+    }
+
+    function getCodexUsageColor(percent, available, timePct) {
+        return available ? getUsageColor(percent, root.useTimeAware ? timePct : undefined) : Kirigami.Theme.disabledTextColor
+    }
+
+    function formatCodexPercent(percent, available, includeSuffix) {
+        return available ? Math.round(percent) + (includeSuffix ? "%" : "") : "∞"
+    }
+
+    // Codex polls on its own timer: refreshTimer pauses while Claude is rate
+    // limited, which says nothing about Codex.
+    Timer {
+        id: codexRefreshTimer
+        interval: Math.max(Plasmoid.configuration.refreshInterval || 5, 1) * 60000
+        running: root.codexEnabled
+        repeat: true
+        onTriggered: fetchCodexUsage()
+    }
+
+    Connections {
+        target: Plasmoid.configuration
+        function onEnableCodexChanged() { if (root.codexEnabled) fetchCodexUsage() }
+    }
+
+    // Saved card orders predate cards added later (e.g. "codex"), so append any
+    // default card the saved order is missing; the user's order is kept as is.
+    function withMissingCards(saved, defaults) {
+        var list = saved.slice()
+        for (var i = 0; i < defaults.length; i++) {
+            var found = false
+            for (var j = 0; j < list.length; j++) {
+                if (list[j].id === defaults[i].id) { found = true; break }
+            }
+            if (!found) list.push({ id: defaults[i].id, enabled: defaults[i].enabled })
+        }
+        return list
+    }
+
+    // One-time migration from the fork's v1 "Show Fable weekly usage in panel"
+    // checkbox to upstream's per-model panel list, which now covers Fable.
+    function migrateLegacyConfig() {
+        if (Plasmoid.configuration.showFable === true) {
+            var list = (Plasmoid.configuration.showModelLimits || "").toString().split(",")
+                .map(function(s) { return s.trim() }).filter(function(s) { return s !== "" })
+            if (list.indexOf("Fable") === -1) list.push("Fable")
+            Plasmoid.configuration.showModelLimits = list.join(",")
+            Plasmoid.configuration.showFable = false
+            console.log("Claude Usage: migrated showFable to showModelLimits:", Plasmoid.configuration.showModelLimits)
+        }
+    }
+
     // Cache writer
     Plasma5Support.DataSource {
         id: cacheWriter
@@ -124,7 +305,7 @@ PlasmoidItem {
                 try {
                     var cache = JSON.parse(stdout)
                     var age = Date.now() - (cache.timestamp || 0)
-                    if (age < 86400000) {
+                    if (cache.timestamp > 0 && age < 86400000) {
                         root.sessionUsagePercent = cache.session || 0
                         root.weeklyUsagePercent = cache.weekly || 0
                         root.sonnetWeeklyPercent = cache.sonnet || 0
@@ -153,8 +334,26 @@ PlasmoidItem {
                         root.lastUpdate = Qt.formatTime(new Date(cache.timestamp), "hh:mm:ss") + " *"
                         root.isStale = age > root.staleThresholdMs
                         console.log("Claude Usage: Loaded cache, age:", Math.round(age/60000), "min, stale:", root.isStale)
-                    } else {
+                    } else if (cache.timestamp > 0) {
                         console.log("Claude Usage: Cache too old, ignoring")
+                    } else {
+                        console.log("Claude Usage: Cache has no Claude data yet")
+                    }
+                    // Codex block (fork addition): its own timestamp, so a Codex-only save
+                    // never revives Claude numbers and vice versa.
+                    var codexAge = Date.now() - (cache.codexTimestamp || 0)
+                    if (cache.codexTimestamp > root.codexLastSuccessTime && !root.codexCliMissing && codexAge < 86400000) {
+                        root.codexSessionUsagePercent = cache.codexSession || 0
+                        root.codexWeeklyUsagePercent = cache.codexWeekly || 0
+                        root.codexHasSessionData = cache.codexHasSession === true
+                        root.codexHasWeeklyData = cache.codexHasWeekly === true
+                        root.codexPlanName = cache.codexPlan || ""
+                        root.codexSessionResetTime = cache.codexSessionResetTs ? new Date(cache.codexSessionResetTs) : null
+                        root.codexWeeklyResetTime = cache.codexWeeklyResetTs ? new Date(cache.codexWeeklyResetTs) : null
+                        root.codexSessionWindowMs = cache.codexSessionWindowMs || 18000000
+                        root.codexWeeklyWindowMs = cache.codexWeeklyWindowMs || 604800000
+                        root.codexLastSuccessTime = cache.codexTimestamp
+                        console.log("Claude Usage: Loaded Codex cache, age:", Math.round(codexAge/60000), "min")
                     }
                 } catch (e) {
                     console.log("Claude Usage: Cache parse error:", e)
@@ -182,7 +381,19 @@ PlasmoidItem {
             extraEnabled: root.extraEnabled,
             extraUsed: root.extraUsedCents,
             extraLimit: root.extraLimitCents,
-            timestamp: Date.now()
+            codexSession: root.codexSessionUsagePercent,
+            codexWeekly: root.codexWeeklyUsagePercent,
+            codexHasSession: root.codexHasSessionData,
+            codexHasWeekly: root.codexHasWeeklyData,
+            codexPlan: root.codexPlanName,
+            codexSessionResetTs: root.codexSessionResetTime ? root.codexSessionResetTime.getTime() : null,
+            codexWeeklyResetTs: root.codexWeeklyResetTime ? root.codexWeeklyResetTime.getTime() : null,
+            codexSessionWindowMs: root.codexSessionWindowMs,
+            codexWeeklyWindowMs: root.codexWeeklyWindowMs,
+            codexTimestamp: root.codexLastSuccessTime,
+            // Claude's last success (0 = never): a Codex-triggered save must not
+            // make unfetched or stale Claude numbers look current after a restart.
+            timestamp: root.lastSuccessTime
         }
         var json = JSON.stringify(cache)
         cacheWriter.connectSource("echo '" + json.replace(/'/g, "'\\''") + "' > " + root.cacheFileExpr)
@@ -316,6 +527,7 @@ PlasmoidItem {
             root.accountEmail = ""
             root.accountTier = ""
             root.credentialsRetryCount = 0
+            root.lastSuccessTime = 0
             root.alertedThresholds = ({})
             root.planName = ""
             root.sessionUsagePercent = 0
@@ -921,6 +1133,7 @@ PlasmoidItem {
         root.lastFetchTime = 0
         root.autoRefreshAttempted = false
         loadCredentials()
+        fetchCodexUsage()
     }
 
     // Compact representation (panel)
@@ -949,22 +1162,22 @@ PlasmoidItem {
         property var classicCardOrder: []
 
         function parseClassicCardOrder() {
+            var defaults = [
+                {id: "usage", enabled: true},
+                {id: "models", enabled: true},
+                {id: "codex", enabled: true},
+                {id: "extra", enabled: true},
+                {id: "tokens", enabled: true},
+                {id: "trend", enabled: true},
+                {id: "installations", enabled: true},
+                {id: "links", enabled: true}
+            ]
             try {
                 classicCardOrder = JSON.parse(Plasmoid.configuration.cardOrder || "[]")
             } catch (e) {
                 classicCardOrder = []
             }
-            if (classicCardOrder.length === 0) {
-                classicCardOrder = [
-                    {id: "usage", enabled: true},
-                    {id: "models", enabled: true},
-                    {id: "extra", enabled: true},
-                    {id: "tokens", enabled: true},
-                    {id: "trend", enabled: true},
-                    {id: "installations", enabled: true},
-                    {id: "links", enabled: true}
-                ]
-            }
+            classicCardOrder = classicCardOrder.length === 0 ? defaults : root.withMissingCards(classicCardOrder, defaults)
         }
 
         Component.onCompleted: parseClassicCardOrder()
@@ -976,6 +1189,7 @@ PlasmoidItem {
         property var classicCardComponents: ({
             "usage": classicUsageComp,
             "models": classicModelsComp,
+            "codex": classicCodexComp,
             "extra": classicExtraComp,
             "tokens": classicTokensComp,
             "trend": classicTrendComp,
@@ -984,6 +1198,7 @@ PlasmoidItem {
         })
 
         function classicCardVisible(id) {
+            if (id === "codex") return root.codexEnabled && !root.codexCliMissing
             if (id === "extra") return root.extraEnabled
             if (id === "tokens") return root.tokenStats.length > 0
             if (id === "trend") return root.usageSamples.length >= 2
@@ -1206,6 +1421,96 @@ PlasmoidItem {
                     font.pixelSize: Kirigami.Theme.smallFont.pixelSize
                     color: Kirigami.Theme.disabledTextColor
                     font.italic: true
+                }
+            }
+        }
+
+        Component {
+            id: classicCodexComp
+            ColumnLayout {
+                spacing: Kirigami.Units.smallSpacing
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    PlasmaComponents.Label {
+                        text: i18n.tr("Codex Usage")
+                        font.bold: true
+                    }
+                    Item { Layout.fillWidth: true }
+                    PlasmaComponents.Label {
+                        visible: root.codexPlanName !== ""
+                        text: root.codexPlanName
+                        font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                        color: Kirigami.Theme.disabledTextColor
+                    }
+                }
+
+                PlasmaComponents.Label {
+                    visible: root.codexErrorMsg !== ""
+                    text: "⚠ " + root.codexErrorMsg
+                    color: Kirigami.Theme.negativeTextColor
+                    font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                }
+
+                Repeater {
+                    model: root.codexErrorMsg !== "" ? 0 : 2
+
+                    ColumnLayout {
+                        required property int index
+                        readonly property var win: root.codexWindowInfo(index === 0)
+                        visible: win.available || win.alwaysShow
+                        Layout.fillWidth: true
+                        spacing: Kirigami.Units.smallSpacing
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            PlasmaComponents.Label {
+                                text: win.label
+                                font.bold: true
+                            }
+                            Item { Layout.fillWidth: true }
+                            PlasmaComponents.Label {
+                                text: root.formatCodexPercent(win.percent, win.available, true)
+                                color: root.getCodexUsageColor(win.percent, win.available, win.timePct)
+                                font.bold: true
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: root.classicBarHeight
+                            radius: root.classicBarHeight / 2
+                            color: Kirigami.Theme.backgroundColor
+                            border.color: Kirigami.Theme.disabledTextColor
+                            border.width: 1
+                            Rectangle {
+                                width: parent.width * Math.min(win.percent / 100, 1)
+                                height: parent.height
+                                radius: root.classicBarHeight / 2
+                                color: root.getCodexUsageColor(win.percent, win.available, win.timePct)
+                            }
+                            Rectangle {
+                                visible: root.useTimeAware && win.available && win.timePct >= 0
+                                x: parent.width * Math.min(win.timePct / 100, 1) - width / 2
+                                y: -Math.round(2 * root.metricsScale)
+                                width: Math.max(2, Math.round(2 * root.metricsScale))
+                                height: parent.height + Math.round(4 * root.metricsScale)
+                                color: Kirigami.Theme.textColor
+                                opacity: 0.6
+                            }
+                        }
+
+                        PlasmaComponents.Label {
+                            visible: win.resetTime !== null
+                            text: win.resetTime
+                                ? i18n.tr("Resets:") + " " + Qt.formatDateTime(win.resetTime, "MMM d, hh:mm") + " (" + root.formatTimeRemaining(win.resetTime) + ")"
+                                : ""
+                            font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                            color: Kirigami.Theme.disabledTextColor
+                        }
+                    }
                 }
             }
         }
@@ -1862,7 +2167,9 @@ PlasmoidItem {
         emailReader.connectSource(readAccountCmd())
         if (Plasmoid.configuration.enableUpdateCheck !== false) checkForUpdate()
         refreshTokenStats()
+        migrateLegacyConfig()
         loadCredentials()
+        fetchCodexUsage()
         updateProcessVisibility()
     }
 
@@ -1893,7 +2200,7 @@ PlasmoidItem {
     }
 
     Plasmoid.icon: "claude-usage-widget"
-    toolTipMainText: i18n.tr("Claude Usage")
+    toolTipMainText: root.codexEnabled ? i18n.tr("Claude & Codex Usage") : i18n.tr("Claude Usage")
     toolTipSubText: {
         var parts = []
         if (Plasmoid.configuration.showSession !== false) {
@@ -1911,6 +2218,12 @@ PlasmoidItem {
         for (var i = 0; i < root.modelLimits.length; i++) {
             if (root.isModelShownInPanel(root.modelLimits[i].label))
                 parts.push(root.modelLimits[i].label + ": " + Math.round(root.modelLimits[i].percent) + "%")
+        }
+        if (root.codexEnabled) {
+            if (root.codexHasSessionData)
+                parts.push(i18n.tr("Codex") + " " + root.codexSessionLabel + ": " + formatCodexPercent(root.codexSessionUsagePercent, true, true))
+            if (root.codexHasWeeklyData)
+                parts.push(i18n.tr("Codex") + " " + root.codexWeeklyLabel + ": " + formatCodexPercent(root.codexWeeklyUsagePercent, true, true))
         }
         return parts.join(" | ")
     }

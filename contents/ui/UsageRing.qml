@@ -22,6 +22,7 @@ Item {
     property bool centerPercentOverlay: false
     property string cornerLabel: ""
     property real markerRel: -1   // elapsed-time fraction 0..1 shown as a dot; < 0 hides it
+    property string centerText: ""   // overrides the percentage (e.g. "∞" for a window with no limit data)
 
     readonly property real arcRadius: Math.min(width, height) / 2 - lineWidth / 2
 
@@ -103,7 +104,7 @@ Item {
            - percentMetrics.tightBoundingRect.height / 2
            - percentFont.ascent
 
-        text: Math.round(ring.percent) + (ring.showPercentSign ? "%" : "")
+        text: ring.centerText !== "" ? ring.centerText : Math.round(ring.percent) + (ring.showPercentSign ? "%" : "")
         font.pixelSize: Math.max(8, ring.height * ring.fontScale)
         font.bold: true
         style: ring.centerIcon !== "" ? Text.Outline : Text.Normal

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1.1] - 2026-10-07 (Codex fork)
+
+### Added
+
+- OpenAI Codex usage (session and weekly-or-longer windows labelled by their reported length, e.g. 5h / 7d / 30d; plan; reset times) via the local Codex CLI: panel metrics in all three styles, a Codex card in both popup layouts, and a Codex settings section
+- Saved card orders get newly added cards appended instead of hiding them
+- `UsageRing.centerText` to show a label (e.g. "∞") instead of the percentage
+
+### Changed
+
+- Rebased the fork onto upstream v2.4.1; the fork's own Fable tracker is dropped because upstream shows per-model weekly limits (Fable included) itself, and its panel option is migrated once into `showModelLimits`
+
 ## [2.4.1] - 2026-09-25
 
 ### Fixed

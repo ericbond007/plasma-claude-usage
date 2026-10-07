@@ -64,23 +64,23 @@ Item {
     property var cardOrder: []
 
     function parseCardOrder() {
+        var defaults = [
+            {id: "account", enabled: true},
+            {id: "usage", enabled: true},
+            {id: "models", enabled: true},
+            {id: "codex", enabled: true},
+            {id: "extra", enabled: true},
+            {id: "tokens", enabled: true},
+            {id: "trend", enabled: true},
+            {id: "installations", enabled: true},
+            {id: "links", enabled: true}
+        ]
         try {
             cardOrder = JSON.parse(Plasmoid.configuration.cardOrder || "[]")
         } catch (e) {
             cardOrder = []
         }
-        if (cardOrder.length === 0) {
-            cardOrder = [
-                {id: "account", enabled: true},
-                {id: "usage", enabled: true},
-                {id: "models", enabled: true},
-                {id: "extra", enabled: true},
-                {id: "tokens", enabled: true},
-                {id: "trend", enabled: true},
-                {id: "installations", enabled: true},
-                {id: "links", enabled: true}
-            ]
-        }
+        cardOrder = cardOrder.length === 0 ? defaults : root.withMissingCards(cardOrder, defaults)
     }
 
     Component.onCompleted: parseCardOrder()
@@ -94,6 +94,7 @@ Item {
             case "account": return root.accountEmail !== "" || root.planName !== ""
             case "usage": return true
             case "models": return root.modelUsage.length > 0 || root.modelLimits.length > 0
+            case "codex": return root.codexEnabled && !root.codexCliMissing
             case "extra": return root.extraEnabled
             case "tokens": return root.tokenStats.length > 0
             case "trend": return root.usageSamples.length >= 2
@@ -107,6 +108,7 @@ Item {
         "account": cardAccountComp,
         "usage": cardUsageComp,
         "models": cardModelsComp,
+        "codex": cardCodexComp,
         "extra": cardExtraComp,
         "tokens": cardTokensComp,
         "trend": cardTrendComp,
@@ -290,6 +292,91 @@ Item {
                     font.pixelSize: Kirigami.Theme.smallFont.pixelSize - 1
                     font.italic: true; opacity: 0.45
                     Layout.fillWidth: true; wrapMode: Text.WordWrap
+                }
+            }
+        }
+    }
+
+    Component {
+        id: cardCodexComp
+        Rectangle {
+            Layout.fillWidth: true
+            radius: Kirigami.Units.cornerRadius
+            color: full.cardColor
+            implicitHeight: codexInner.implicitHeight + Kirigami.Units.mediumSpacing * 2
+
+            ColumnLayout {
+                id: codexInner
+                anchors.fill: parent
+                anchors.margins: Kirigami.Units.mediumSpacing
+                spacing: Kirigami.Units.smallSpacing
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    PlasmaComponents.Label {
+                        font.pixelSize: Kirigami.Theme.smallFont.pixelSize - 1
+                        font.capitalization: Font.AllUppercase
+                        font.letterSpacing: 1.2; font.bold: true; opacity: 0.55
+                        text: i18n.tr("Codex")
+                    }
+                    Item { Layout.fillWidth: true }
+                    PlasmaComponents.Label {
+                        visible: root.codexPlanName !== ""
+                        text: root.codexPlanName
+                        font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                        opacity: 0.65
+                    }
+                }
+
+                PlasmaComponents.Label {
+                    visible: root.codexErrorMsg !== ""
+                    text: "⚠ " + root.codexErrorMsg
+                    color: Kirigami.Theme.negativeTextColor
+                    font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                }
+
+                RowLayout {
+                    visible: root.codexErrorMsg === ""
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.mediumSpacing
+
+                    Repeater {
+                        model: 2
+
+                        ColumnLayout {
+                            required property int index
+                            readonly property var win: root.codexWindowInfo(index === 0)
+                            visible: win.available || win.alwaysShow
+                            Layout.fillWidth: true
+                            spacing: Kirigami.Units.smallSpacing
+
+                            UsageRing {
+                                Layout.alignment: Qt.AlignHCenter
+                                Layout.preferredWidth: full.ringSize; Layout.preferredHeight: full.ringSize
+                                percent: win.available ? win.percent : 0
+                                centerText: win.available ? "" : "∞"
+                                ringColor: root.getCodexUsageColor(win.percent, win.available, win.timePct)
+                                markerRel: root.useTimeAware && win.available && win.timePct >= 0 ? win.timePct / 100 : -1
+                                lineWidth: full.ringLineWidth; showPercentSign: true; fontScale: 0.22
+                            }
+                            PlasmaComponents.Label {
+                                Layout.alignment: Qt.AlignHCenter
+                                text: win.label
+                                font.bold: true; font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                            }
+                            PlasmaComponents.Label {
+                                Layout.alignment: Qt.AlignHCenter
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                visible: win.resetTime !== null && root.formatTimeRemaining(win.resetTime) !== ""
+                                text: i18n.tr("resets in") + " " + root.formatTimeRemaining(win.resetTime)
+                                font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                                opacity: 0.65; elide: Text.ElideRight
+                            }
+                        }
+                    }
                 }
             }
         }

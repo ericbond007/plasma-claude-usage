@@ -95,3 +95,15 @@ The file looks like:
 To publish to KDE Store:
 1. Create a `.plasmoid` package: `zip -r claude-usage-widget.plasmoid metadata.json contents/`
 2. Upload to https://store.kde.org/
+
+## Fork: Codex support (ericbond007, 2026-10-07)
+
+This branch is upstream v2.4.1 plus Codex. Everything Codex-related is marked "fork addition" in comments:
+
+- `contents/scripts/codex-usage.sh` — starts `codex app-server --stdio`, sends `initialize` then `account/rateLimits/read` (JSON-RPC over stdio), prints the `id:2` response. `result.rateLimits.primary/secondary` carry `usedPercent`, `windowDurationMins`, `resetsAt` (epoch seconds); `planType` is the plan.
+- `main.qml` — `codex*` properties, `codexReader`, `fetchCodexUsage()`, its own `codexRefreshTimer` (Claude's `refreshTimer` pauses on Claude rate limits), cache fields, tooltip, classic `classicCodexComp`, `withMissingCards()`, `migrateLegacyConfig()`.
+- `CompactView.qml` / `CodexBadge.qml` — panel metrics for text/bar/ring; `FullView.qml` — `cardCodexComp`.
+- Fable: upstream's generic `limits[]` handling (`modelLimits`, `showModelLimits`) covers it; do not re-add a dedicated tracker.
+
+Lint with the **Qt 6** linter: `/usr/lib/qt6/bin/qmllint` (`/usr/bin/qmllint` is Qt 5 and reports nothing useful). It exits 0 even with warnings — compare its output against the upstream baseline (all `[unqualified]` from `root.` access in child files).
+

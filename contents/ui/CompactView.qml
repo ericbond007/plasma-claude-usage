@@ -57,6 +57,7 @@ Item {
         ? Math.round(9 * root.metricsScale)
         : Math.min(Math.round(9 * root.metricsScale), Math.round(compact.availableHeight * 0.5))
     readonly property int dotSize: fitted(Math.round(10 * root.metricsScale))
+    readonly property int codexBadgeSize: fitted(Math.round(Kirigami.Units.iconSizes.smallMedium * root.metricsScale))
     // Capped so the text fits the panel thickness (text line height is ~1.4x the pixel size).
     readonly property int textFontSize: compact.availableHeight < 0
         ? Math.round(Kirigami.Theme.defaultFont.pixelSize * root.metricsScale)
@@ -195,6 +196,68 @@ Item {
                     opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
                 }
             }
+        }
+
+        // === TEXT STYLE: Codex (fork addition) ===
+
+        PlasmaComponents.Label {
+            visible: root.showCodexInPanel && !root.isVerticalLayout && root.effectivePanelStyle === "text"
+                && root.showUsageStats && root.metricsVisible
+                && ((Plasmoid.configuration.showSession !== false) || (Plasmoid.configuration.showWeekly !== false))
+            text: "|"
+            opacity: 0.5
+            font.pixelSize: compact.textFontSize
+        }
+
+        CodexBadge {
+            visible: root.showCodexInPanel && root.effectivePanelStyle === "text"
+            Layout.preferredWidth: compact.codexBadgeSize
+            Layout.preferredHeight: compact.codexBadgeSize
+            size: compact.codexBadgeSize
+            hasError: root.codexErrorMsg !== ""
+        }
+
+        Rectangle {
+            visible: root.showCodexSessionMetric && root.effectivePanelStyle === "text"
+            Layout.preferredWidth: compact.dotSize
+            Layout.preferredHeight: compact.dotSize
+            radius: compact.dotSize / 2
+            color: root.getCodexUsageColor(root.codexSessionUsagePercent, true, root.codexSessionTimePct)
+            opacity: root.codexPanelOpacity
+        }
+
+        PlasmaComponents.Label {
+            visible: root.showCodexSessionMetric && root.effectivePanelStyle === "text"
+            text: root.formatCodexPercent(root.codexSessionUsagePercent, true, true)
+            font.pixelSize: compact.textFontSize
+            font.bold: true
+            color: root.useTimeAware ? root.getCodexUsageColor(root.codexSessionUsagePercent, true, root.codexSessionTimePct) : Kirigami.Theme.textColor
+            opacity: root.codexPanelOpacity
+        }
+
+        PlasmaComponents.Label {
+            visible: root.showCodexSessionMetric && root.showCodexWeeklyMetric && !root.isVerticalLayout && root.effectivePanelStyle === "text"
+            text: "|"
+            opacity: root.codexErrorMsg !== "" ? 0.25 : 0.5
+            font.pixelSize: compact.textFontSize
+        }
+
+        Rectangle {
+            visible: root.showCodexWeeklyMetric && root.effectivePanelStyle === "text"
+            Layout.preferredWidth: compact.dotSize
+            Layout.preferredHeight: compact.dotSize
+            radius: compact.dotSize / 2
+            color: root.getCodexUsageColor(root.codexWeeklyUsagePercent, true, root.codexWeeklyTimePct)
+            opacity: root.codexPanelOpacity
+        }
+
+        PlasmaComponents.Label {
+            visible: root.showCodexWeeklyMetric && root.effectivePanelStyle === "text"
+            text: root.formatCodexPercent(root.codexWeeklyUsagePercent, true, true)
+            font.pixelSize: compact.textFontSize
+            font.bold: true
+            color: root.useTimeAware ? root.getCodexUsageColor(root.codexWeeklyUsagePercent, true, root.codexWeeklyTimePct) : Kirigami.Theme.textColor
+            opacity: root.codexPanelOpacity
         }
 
         // === BAR STYLE ===
@@ -340,6 +403,108 @@ Item {
             }
         }
 
+        // === BAR STYLE: Codex (fork addition) ===
+
+        CodexBadge {
+            visible: root.showCodexInPanel && root.effectivePanelStyle === "bar"
+            Layout.preferredWidth: compact.codexBadgeSize
+            Layout.preferredHeight: compact.codexBadgeSize
+            size: compact.codexBadgeSize
+            hasError: root.codexErrorMsg !== ""
+        }
+
+        Item {
+            visible: root.showCodexSessionMetric && root.effectivePanelStyle === "bar"
+            Layout.preferredWidth: compact.barWidth
+            Layout.preferredHeight: parent.height
+            opacity: root.codexPanelOpacity
+
+            Rectangle {
+                anchors.fill: parent
+                radius: 3
+                color: Kirigami.Theme.backgroundColor
+                border.color: Kirigami.Theme.disabledTextColor
+                border.width: 1
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.margins: 1
+                    height: Math.max((parent.height - 2) * Math.min(root.codexSessionUsagePercent / 100, 1), 1)
+                    radius: 2
+                    color: root.getCodexUsageColor(root.codexSessionUsagePercent, true, root.codexSessionTimePct)
+                }
+
+                Rectangle {
+                    visible: root.useTimeAware && root.codexSessionTimePct >= 0
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.margins: 1
+                    y: parent.height - 1 - (parent.height - 2) * Math.min(Math.max(root.codexSessionTimePct, 0), 100) / 100
+                    height: 2
+                    color: Kirigami.Theme.textColor
+                    opacity: 0.6
+                }
+            }
+
+            PlasmaComponents.Label {
+                anchors.centerIn: parent
+                text: Math.round(root.codexSessionUsagePercent)
+                font.pixelSize: compact.barFontSize
+                font.bold: true
+                color: Kirigami.Theme.textColor
+                style: Text.Outline
+                styleColor: Kirigami.Theme.backgroundColor
+            }
+        }
+
+        Item {
+            visible: root.showCodexWeeklyMetric && root.effectivePanelStyle === "bar"
+            Layout.preferredWidth: compact.barWidth
+            Layout.preferredHeight: parent.height
+            opacity: root.codexPanelOpacity
+
+            Rectangle {
+                anchors.fill: parent
+                radius: 3
+                color: Kirigami.Theme.backgroundColor
+                border.color: Kirigami.Theme.disabledTextColor
+                border.width: 1
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.margins: 1
+                    height: Math.max((parent.height - 2) * Math.min(root.codexWeeklyUsagePercent / 100, 1), 1)
+                    radius: 2
+                    color: root.getCodexUsageColor(root.codexWeeklyUsagePercent, true, root.codexWeeklyTimePct)
+                }
+
+                Rectangle {
+                    visible: root.useTimeAware && root.codexWeeklyTimePct >= 0
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.margins: 1
+                    y: parent.height - 1 - (parent.height - 2) * Math.min(Math.max(root.codexWeeklyTimePct, 0), 100) / 100
+                    height: 2
+                    color: Kirigami.Theme.textColor
+                    opacity: 0.6
+                }
+            }
+
+            PlasmaComponents.Label {
+                anchors.centerIn: parent
+                text: Math.round(root.codexWeeklyUsagePercent)
+                font.pixelSize: compact.barFontSize
+                font.bold: true
+                color: Kirigami.Theme.textColor
+                style: Text.Outline
+                styleColor: Kirigami.Theme.backgroundColor
+            }
+        }
+
         // === RING STYLE ===
 
         UsageRing {
@@ -396,6 +561,42 @@ Item {
                     : ""
                 centerPercentOverlay: (Plasmoid.configuration.ringCenter || "percent") === "logo_percent"
             }
+        }
+
+        // === RING STYLE: Codex (fork addition) ===
+
+        CodexBadge {
+            visible: root.showCodexInPanel && root.effectivePanelStyle === "ring"
+            Layout.preferredWidth: compact.codexBadgeSize
+            Layout.preferredHeight: compact.codexBadgeSize
+            size: compact.codexBadgeSize
+            hasError: root.codexErrorMsg !== ""
+        }
+
+        UsageRing {
+            visible: root.showCodexSessionMetric && root.effectivePanelStyle === "ring"
+            Layout.preferredWidth: compact.ringSize
+            Layout.preferredHeight: compact.ringSize
+            opacity: root.codexPanelOpacity
+            percent: root.codexSessionUsagePercent
+            ringColor: root.getCodexUsageColor(root.codexSessionUsagePercent, true, root.codexSessionTimePct)
+            markerRel: root.useTimeAware && root.codexSessionTimePct >= 0 ? root.codexSessionTimePct / 100 : -1
+            lineWidth: compact.ringLineWidth
+            fontScale: compact.ringFontScale
+            cornerLabel: Plasmoid.configuration.showWindowLabels === true ? root.codexSessionLabel : ""
+        }
+
+        UsageRing {
+            visible: root.showCodexWeeklyMetric && root.effectivePanelStyle === "ring"
+            Layout.preferredWidth: compact.ringSize
+            Layout.preferredHeight: compact.ringSize
+            opacity: root.codexPanelOpacity
+            percent: root.codexWeeklyUsagePercent
+            ringColor: root.getCodexUsageColor(root.codexWeeklyUsagePercent, true, root.codexWeeklyTimePct)
+            markerRel: root.useTimeAware && root.codexWeeklyTimePct >= 0 ? root.codexWeeklyTimePct / 100 : -1
+            lineWidth: compact.ringLineWidth
+            fontScale: compact.ringFontScale
+            cornerLabel: Plasmoid.configuration.showWindowLabels === true ? root.codexWeeklyLabel : ""
         }
 
         // Error text (non-token errors only)

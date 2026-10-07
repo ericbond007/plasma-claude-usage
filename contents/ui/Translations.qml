@@ -17,6 +17,16 @@ QtObject {
 
     readonly property var strings: ({
         "en_US": {
+            "Claude & Codex Usage": "Claude & Codex Usage",
+            "Codex": "Codex",
+            "Codex Usage": "Codex Usage",
+            "Usage:": "Usage:",
+            "Include Codex usage": "Include Codex usage",
+            "Codex session window": "Codex session window",
+            "Codex weekly (or longer) window": "Codex weekly (or longer) window",
+            "Session": "Session",
+            "Weekly": "Weekly",
+            "Limit": "Limit",
             "weekly usage": "weekly usage",
             "Token Stats (Today)": "Token Stats (Today)",
             "Claude Usage": "Claude Usage",

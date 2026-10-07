@@ -22,6 +22,10 @@ KCM.SimpleKCM {
     property bool cfg_showSession
     property bool cfg_showWeekly
     property string cfg_showModelLimits
+    property bool cfg_showFable   // legacy fork key; main.qml migrates and clears it
+    property bool cfg_enableCodex
+    property bool cfg_showCodexSession
+    property bool cfg_showCodexWeekly
     property string cfg_quickLinks
     property string cfg_processVisibility
     property int cfg_processCheckInterval
@@ -52,6 +56,7 @@ KCM.SimpleKCM {
         {id: "account", enabled: true},
         {id: "usage", enabled: true},
         {id: "models", enabled: true},
+        {id: "codex", enabled: true},
         {id: "extra", enabled: true},
         {id: "tokens", enabled: true},
         {id: "trend", enabled: true},
@@ -63,12 +68,26 @@ KCM.SimpleKCM {
         "account": "Account",
         "usage": "Session & Weekly",
         "models": "By Model (Weekly)",
+        "codex": "Codex",
         "extra": "Extra Usage",
         "tokens": "Today's Tokens",
         "trend": "7-day trend",
         "installations": "Claude Code",
         "links": "Quick links"
     })
+
+    // Saved orders predate cards added later (e.g. "codex"): append the missing ones.
+    function withMissingCards(saved) {
+        var list = saved.slice()
+        for (var i = 0; i < defaultCardOrder.length; i++) {
+            var found = false
+            for (var j = 0; j < list.length; j++) {
+                if (list[j].id === defaultCardOrder[i].id) { found = true; break }
+            }
+            if (!found) list.push({ id: defaultCardOrder[i].id, enabled: defaultCardOrder[i].enabled })
+        }
+        return list
+    }
 
     function cardDisplayName(cardId) {
         return tr(cardNames[cardId] || cardId)
@@ -77,7 +96,7 @@ KCM.SimpleKCM {
     onCfg_cardOrderChanged: {
         try { cardOrderModel = JSON.parse(cfg_cardOrder || "[]") }
         catch (e) { cardOrderModel = defaultCardOrder.slice() }
-        if (cardOrderModel.length === 0) cardOrderModel = defaultCardOrder.slice()
+        cardOrderModel = cardOrderModel.length === 0 ? defaultCardOrder.slice() : withMissingCards(cardOrderModel)
     }
 
     function saveCardOrder() {
@@ -190,7 +209,7 @@ KCM.SimpleKCM {
         catch (e) { quickLinksModel = [] }
         try { cardOrderModel = JSON.parse(cfg_cardOrder || "[]") }
         catch (e) { cardOrderModel = defaultCardOrder.slice() }
-        if (cardOrderModel.length === 0) cardOrderModel = defaultCardOrder.slice()
+        cardOrderModel = cardOrderModel.length === 0 ? defaultCardOrder.slice() : withMissingCards(cardOrderModel)
     }
 
     readonly property var languageValues: [
@@ -479,6 +498,33 @@ KCM.SimpleKCM {
             text: tr("No model data yet")
             font.italic: true
             opacity: 0.6
+        }
+
+        Kirigami.Separator {
+            Kirigami.FormData.isSection: true
+            Kirigami.FormData.label: tr("Codex")
+        }
+
+        QQC2.CheckBox {
+            Kirigami.FormData.label: tr("Usage:")
+            text: tr("Include Codex usage")
+            checked: cfg_enableCodex
+            onCheckedChanged: cfg_enableCodex = checked
+        }
+
+        QQC2.CheckBox {
+            Kirigami.FormData.label: tr("Show in panel:")
+            text: tr("Codex session window")
+            checked: cfg_showCodexSession
+            enabled: cfg_enableCodex
+            onCheckedChanged: cfg_showCodexSession = checked
+        }
+
+        QQC2.CheckBox {
+            text: tr("Codex weekly (or longer) window")
+            checked: cfg_showCodexWeekly
+            enabled: cfg_enableCodex
+            onCheckedChanged: cfg_showCodexWeekly = checked
         }
 
         Kirigami.Separator {

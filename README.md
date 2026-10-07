@@ -4,6 +4,16 @@ A KDE Plasma 6 widget that displays your Claude Code usage statistics in the tas
 
 ![Popup](screenshots/popup.png)
 
+## This fork: Codex support
+
+This is [izll/plasma-claude-usage](https://github.com/izll/plasma-claude-usage) v2.4.1 plus **OpenAI Codex usage** in the same widget:
+
+- Codex rate-limit windows (5-hour session + weekly on paid plans; a single 30-day window on the free plan), plan and reset times, labelled from the window length Codex reports, read live from the local Codex CLI (`contents/scripts/codex-usage.sh` runs `codex app-server --stdio` and asks `account/rateLimits/read`; no credentials pass through the widget).
+- Panel: Codex metrics follow the chosen style (ring / text / bar) after the Claude ones, marked with a circled "O"; a red dot means the last Codex read failed.
+- Popup: a **Codex** card in both the card and classic layouts, movable/hideable like the other cards.
+- Settings → **Codex**: turn Codex on/off and pick which Codex metrics show in the panel. Codex is independent of the Claude-process visibility option.
+- Upgrading from the fork's v1.x: the old "Show Fable weekly usage in panel" option is migrated once into upstream's per-model panel list (upstream now shows Fable and other per-model weekly limits itself).
+
 ## Features
 
 - **3 Panel Styles**: Ring (anti-aliased progress rings), Text (percentage + dot), Bar (vertical bars with time marker)
