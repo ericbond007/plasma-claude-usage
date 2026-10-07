@@ -20,6 +20,9 @@ KCM.SimpleKCM {
     property bool cfg_showSession
     property bool cfg_showWeekly
     property bool cfg_showFable
+    property bool cfg_enableCodex
+    property bool cfg_showCodexSession
+    property bool cfg_showCodexWeekly
     property string cfg_baseUrl
     property string cfg_apiKey
     property double cfg_backgroundOpacity
@@ -132,6 +135,33 @@ KCM.SimpleKCM {
             text: tr("Fable")
             checked: cfg_showFable
             onCheckedChanged: cfg_showFable = checked
+        }
+
+        Kirigami.Separator {
+            Kirigami.FormData.isSection: true
+            Kirigami.FormData.label: tr("Codex")
+        }
+
+        QQC2.CheckBox {
+            Kirigami.FormData.label: tr("Usage:")
+            text: tr("Include Codex usage")
+            checked: cfg_enableCodex
+            onCheckedChanged: cfg_enableCodex = checked
+        }
+
+        QQC2.CheckBox {
+            Kirigami.FormData.label: tr("Show in panel:")
+            text: tr("Codex session (5hr)")
+            checked: cfg_showCodexSession
+            enabled: cfg_enableCodex
+            onCheckedChanged: cfg_showCodexSession = checked
+        }
+
+        QQC2.CheckBox {
+            text: tr("Codex weekly (7day)")
+            checked: cfg_showCodexWeekly
+            enabled: cfg_enableCodex
+            onCheckedChanged: cfg_showCodexWeekly = checked
         }
 
         RowLayout {

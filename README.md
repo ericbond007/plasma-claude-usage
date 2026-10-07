@@ -1,6 +1,6 @@
-# Claude Usage Widget
+# Claude & Codex Usage Widget
 
-A KDE Plasma 6 widget that displays your Claude Code usage statistics in the taskbar.
+A KDE Plasma 6 widget that displays your Claude Code and OpenAI Codex usage statistics in the taskbar.
 
 ![Popup](screenshots/popup.png)
 
@@ -12,6 +12,7 @@ A KDE Plasma 6 widget that displays your Claude Code usage statistics in the tas
 - **Detailed Popup**: Click to see full statistics
   - Session and weekly usage with progress bars
   - Reset times for both limits
+  - Codex 5-hour and weekly usage, plan, and reset times
   - Fable weekly limit breakdown (when the API reports it)
   - Your subscription plan badge
 - **Configurable Refresh**: Default 5 min polling (adjustable in settings)
@@ -21,12 +22,13 @@ A KDE Plasma 6 widget that displays your Claude Code usage statistics in the tas
 - **Error Handling**: Clear messages when not logged in, token expired, or rate limited
 - **Custom API Support**: Optional proxy/gateway with custom base URL and API key
 - **15 Languages**: EN, HU, DE, FR, ES, IT, PT, RU, PL, NL, TR, JA, KO, ZH-CN, ZH-TW
-- **No Dependencies**: Pure QML, no Python or external tools required
+- **Local CLI Integration**: Uses the installed CLIs for authentication; credentials never pass through the widget
 
 ## Requirements
 
 - KDE Plasma 6.0 or later
 - Claude Code CLI installed and logged in
+- Codex CLI installed and logged in (optional; Codex display can be disabled)
 
 ## Installation
 
@@ -54,7 +56,7 @@ kpackagetool6 -t Plasma/Applet -i .
 
 ## Usage
 
-1. Make sure you're logged in to Claude Code (run `claude` in terminal)
+1. Make sure you're logged in to Claude Code (`claude`) and Codex (`codex`)
 2. Add the widget to your panel
 3. Click the widget to see detailed usage statistics
 
@@ -80,6 +82,8 @@ When a base URL is configured, the widget authenticates with `x-api-key` instead
 ## How It Works
 
 The widget calls the Anthropic usage API directly from QML. No data is stored or sent anywhere else.
+
+Codex usage is read through the local `codex app-server` API. The bundled helper asks the CLI for `account/rateLimits/read`, so the widget never reads or copies `~/.codex/auth.json`.
 
 ### API Endpoint
 
@@ -157,6 +161,11 @@ GPL-3.0-or-later
 izll
 
 ## Version History
+
+### 1.4.0 (2026)
+- Add Codex 5-hour and weekly usage, reset times, and plan display
+- Add optional Codex metrics to the panel and tooltip
+- Fetch Codex data through the local Codex app-server without exposing OAuth credentials
 
 ### 1.3.6 (2026)
 - Vertical layout option for taller panels (thanks @nahall, issue #5)

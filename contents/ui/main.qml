@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.plasma.plasmoid
 import org.kde.plasma.components as PlasmaComponents
@@ -27,6 +28,16 @@ PlasmoidItem {
     property string apiKey: ""
     property string baseUrl: ""
     property bool isLoading: false
+    property real codexSessionUsagePercent: 0
+    property real codexWeeklyUsagePercent: 0
+    property bool codexHasSessionData: false
+    property bool codexHasWeeklyData: false
+    property string codexPlanName: ""
+    property string codexErrorMsg: ""
+    property string codexLastUpdate: ""
+    property var codexSessionResetTime: null
+    property var codexWeeklyResetTime: null
+    property bool codexIsLoading: false
     property var sessionResetTime: null
     property var weeklyResetTime: null
     property bool hasFableData: false
@@ -49,6 +60,65 @@ PlasmoidItem {
         engine: "executable"
         connectedSources: []
         onNewData: function(sourceName, data) { disconnectSource(sourceName) }
+    }
+
+    Plasma5Support.DataSource {
+        id: codexReader
+        engine: "executable"
+        connectedSources: []
+
+        onNewData: function(sourceName, data) {
+            var stdout = (data["stdout"] || "").trim()
+            disconnectSource(sourceName)
+            root.codexIsLoading = false
+            try {
+                var response = JSON.parse(stdout)
+                if (response.error && !response.result) {
+                    root.codexErrorMsg = response.error.message || response.error
+                    return
+                }
+                var limits = (response.result || {}).rateLimits || {}
+                var windows = [limits.primary, limits.secondary]
+                var sessionWindow = null
+                var weeklyWindow = null
+                for (var wi = 0; wi < windows.length; wi++) {
+                    var window = windows[wi]
+                    if (!window) continue
+                    var duration = window.windowDurationMins || 0
+                    if (duration > 0 && duration <= 1440)
+                        sessionWindow = window
+                    else if (duration > 1440)
+                        weeklyWindow = window
+                }
+                root.codexHasSessionData = sessionWindow !== null
+                root.codexHasWeeklyData = weeklyWindow !== null
+                root.codexSessionUsagePercent = sessionWindow ? (sessionWindow.usedPercent || 0) : 0
+                root.codexWeeklyUsagePercent = weeklyWindow ? (weeklyWindow.usedPercent || 0) : 0
+                root.codexPlanName = formatPlanName(limits.planType || "")
+                root.codexSessionResetTime = sessionWindow && sessionWindow.resetsAt ? new Date(sessionWindow.resetsAt * 1000) : null
+                root.codexWeeklyResetTime = weeklyWindow && weeklyWindow.resetsAt ? new Date(weeklyWindow.resetsAt * 1000) : null
+                root.codexLastUpdate = Qt.formatTime(new Date(), "hh:mm:ss")
+                root.codexErrorMsg = ""
+                saveCache()
+            } catch (e) {
+                root.codexErrorMsg = stdout ? "Codex response error" : "Codex usage request failed"
+                console.log("Codex Usage: Parse error:", e)
+            }
+        }
+    }
+
+    function fetchCodexUsage() {
+        if (Plasmoid.configuration.enableCodex === false) return
+        root.codexIsLoading = true
+        var script = Qt.resolvedUrl("../scripts/codex-usage.sh").toString().replace("file://", "")
+        codexReader.connectSource("bash \"" + script + "\"")
+    }
+
+    function formatPlanName(plan) {
+        if (!plan) return ""
+        return plan.split("_").map(function(word) {
+            return word.charAt(0).toUpperCase() + word.slice(1)
+        }).join(" ")
     }
 
     // Cache reader - loads cached data on startup
@@ -76,6 +146,14 @@ PlasmoidItem {
                         root.weeklyResetTime = cache.weeklyResetTs ? new Date(cache.weeklyResetTs) : null
                         root.lastSuccessTime = cache.timestamp
                         root.lastUpdate = Qt.formatTime(new Date(cache.timestamp), "hh:mm:ss") + " *"
+                        root.codexSessionUsagePercent = cache.codexSession || 0
+                        root.codexWeeklyUsagePercent = cache.codexWeekly || 0
+                        root.codexHasSessionData = cache.codexHasSession === true
+                        root.codexHasWeeklyData = cache.codexHasWeekly === true
+                        root.codexPlanName = cache.codexPlan || ""
+                        root.codexSessionResetTime = cache.codexSessionResetTs ? new Date(cache.codexSessionResetTs) : null
+                        root.codexWeeklyResetTime = cache.codexWeeklyResetTs ? new Date(cache.codexWeeklyResetTs) : null
+                        root.codexLastUpdate = cache.codexLastUpdate || ""
                         root.isStale = age > root.staleThresholdMs
                         console.log("Claude Usage: Loaded cache, age:", Math.round(age/60000), "min, stale:", root.isStale)
                     } else {
@@ -99,6 +177,14 @@ PlasmoidItem {
             weeklyReset: root.weeklyReset,
             sessionResetTs: root.sessionResetTime ? root.sessionResetTime.getTime() : null,
             weeklyResetTs: root.weeklyResetTime ? root.weeklyResetTime.getTime() : null,
+            codexSession: root.codexSessionUsagePercent,
+            codexWeekly: root.codexWeeklyUsagePercent,
+            codexHasSession: root.codexHasSessionData,
+            codexHasWeekly: root.codexHasWeeklyData,
+            codexPlan: root.codexPlanName,
+            codexSessionResetTs: root.codexSessionResetTime ? root.codexSessionResetTime.getTime() : null,
+            codexWeeklyResetTs: root.codexWeeklyResetTime ? root.codexWeeklyResetTime.getTime() : null,
+            codexLastUpdate: root.codexLastUpdate,
             timestamp: Date.now()
         }
         var json = JSON.stringify(cache)
@@ -380,10 +466,15 @@ PlasmoidItem {
         root.rateLimitRetryCount = 0
         root.rateLimitRetryMs = 0
         loadCredentials()
+        fetchCodexUsage()
     }
 
     // Compact representation (panel)
     readonly property bool isVerticalLayout: Plasmoid.configuration.panelLayout === "vertical"
+    readonly property bool showCodexSessionMetric: Plasmoid.configuration.enableCodex !== false
+        && Plasmoid.configuration.showCodexSession !== false && root.codexHasSessionData
+    readonly property bool showCodexWeeklyMetric: Plasmoid.configuration.enableCodex !== false
+        && Plasmoid.configuration.showCodexWeekly !== false && root.codexHasWeeklyData
 
     compactRepresentation: Item {
         Layout.minimumWidth: usageRow.implicitWidth + Kirigami.Units.largeSpacing * 2
@@ -511,6 +602,85 @@ PlasmoidItem {
                 opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
             }
 
+            PlasmaComponents.Label {
+                visible: !root.isVerticalLayout && (!Plasmoid.configuration.panelStyle || Plasmoid.configuration.panelStyle === "text") && (root.showCodexSessionMetric || root.showCodexWeeklyMetric)
+                text: "|"
+                opacity: 0.5
+                font.pixelSize: Kirigami.Theme.defaultFont.pixelSize
+            }
+
+            Item {
+                visible: (!Plasmoid.configuration.panelStyle || Plasmoid.configuration.panelStyle === "text") && (root.showCodexSessionMetric || root.showCodexWeeklyMetric)
+                Layout.preferredWidth: Kirigami.Units.iconSizes.smallMedium
+                Layout.preferredHeight: Kirigami.Units.iconSizes.smallMedium
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: width / 2
+                    color: "transparent"
+                    border.color: Kirigami.Theme.textColor
+                    border.width: 1.5
+                    PlasmaComponents.Label {
+                        anchors.centerIn: parent
+                        text: "O"
+                        font.bold: true
+                        font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                    }
+                }
+
+                Rectangle {
+                    visible: root.codexErrorMsg !== ""
+                    width: 8
+                    height: 8
+                    radius: 4
+                    color: Kirigami.Theme.negativeTextColor
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.rightMargin: -2
+                    anchors.bottomMargin: -2
+                }
+            }
+
+            Rectangle {
+                visible: (!Plasmoid.configuration.panelStyle || Plasmoid.configuration.panelStyle === "text") && root.showCodexSessionMetric
+                Layout.preferredWidth: 10
+                Layout.preferredHeight: 10
+                radius: 5
+                color: getCodexUsageColor(root.codexSessionUsagePercent, root.codexHasSessionData)
+                opacity: root.codexErrorMsg ? 0.5 : 1
+            }
+
+            PlasmaComponents.Label {
+                visible: (!Plasmoid.configuration.panelStyle || Plasmoid.configuration.panelStyle === "text") && root.showCodexSessionMetric
+                text: formatCodexPercent(root.codexSessionUsagePercent, root.codexHasSessionData, true)
+                font.bold: true
+                opacity: root.codexErrorMsg ? 0.5 : 1
+            }
+
+            PlasmaComponents.Label {
+                visible: !root.isVerticalLayout && (!Plasmoid.configuration.panelStyle || Plasmoid.configuration.panelStyle === "text") && root.showCodexSessionMetric && root.showCodexWeeklyMetric
+                text: "|"
+                opacity: root.codexErrorMsg ? 0.25 : 0.5
+                font.pixelSize: Kirigami.Theme.defaultFont.pixelSize
+            }
+
+            Rectangle {
+                visible: (!Plasmoid.configuration.panelStyle || Plasmoid.configuration.panelStyle === "text") && root.showCodexWeeklyMetric
+                Layout.preferredWidth: 10
+                Layout.preferredHeight: 10
+                radius: 5
+                color: getCodexUsageColor(root.codexWeeklyUsagePercent, root.codexHasWeeklyData)
+                opacity: root.codexErrorMsg ? 0.5 : 1
+            }
+
+            PlasmaComponents.Label {
+                visible: (!Plasmoid.configuration.panelStyle || Plasmoid.configuration.panelStyle === "text") && root.showCodexWeeklyMetric
+                text: formatCodexPercent(root.codexWeeklyUsagePercent, root.codexHasWeeklyData, true)
+                font.bold: true
+                opacity: root.codexErrorMsg ? 0.5 : 1
+            }
+
             // === CIRCULAR STYLE ===
 
             // Session (circular)
@@ -586,6 +756,50 @@ PlasmoidItem {
                 PlasmaComponents.Label {
                     anchors.centerIn: parent
                     text: Math.round(root.fableWeeklyPercent)
+                    font.pixelSize: 9
+                    font.bold: true
+                }
+            }
+
+            OpenAiBadge {
+                visible: Plasmoid.configuration.panelStyle === "circular" && (root.showCodexSessionMetric || root.showCodexWeeklyMetric)
+            }
+
+            Item {
+                visible: Plasmoid.configuration.panelStyle === "circular" && root.showCodexSessionMetric
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 28
+                opacity: root.codexErrorMsg ? 0.5 : 1
+                Canvas {
+                    anchors.fill: parent
+                    onPaint: drawCircularProgress(getContext("2d"), width, height, root.codexSessionUsagePercent)
+                    property real _percent: root.codexSessionUsagePercent
+                    on_PercentChanged: requestPaint()
+                    Component.onCompleted: requestPaint()
+                }
+                PlasmaComponents.Label {
+                    anchors.centerIn: parent
+                    text: formatCodexPercent(root.codexSessionUsagePercent, root.codexHasSessionData, false)
+                    font.pixelSize: 9
+                    font.bold: true
+                }
+            }
+
+            Item {
+                visible: Plasmoid.configuration.panelStyle === "circular" && root.showCodexWeeklyMetric
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 28
+                opacity: root.codexErrorMsg ? 0.5 : 1
+                Canvas {
+                    anchors.fill: parent
+                    onPaint: drawCircularProgress(getContext("2d"), width, height, root.codexWeeklyUsagePercent)
+                    property real _percent: root.codexWeeklyUsagePercent
+                    on_PercentChanged: requestPaint()
+                    Component.onCompleted: requestPaint()
+                }
+                PlasmaComponents.Label {
+                    anchors.centerIn: parent
+                    text: formatCodexPercent(root.codexWeeklyUsagePercent, root.codexHasWeeklyData, false)
                     font.pixelSize: 9
                     font.bold: true
                 }
@@ -692,6 +906,68 @@ PlasmoidItem {
                 }
             }
 
+            OpenAiBadge {
+                visible: Plasmoid.configuration.panelStyle === "bar" && (root.showCodexSessionMetric || root.showCodexWeeklyMetric)
+            }
+
+            Item {
+                visible: Plasmoid.configuration.panelStyle === "bar" && root.showCodexSessionMetric
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: parent.height
+                opacity: root.codexErrorMsg ? 0.5 : 1
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 3
+                    color: Kirigami.Theme.backgroundColor
+                    border.color: Kirigami.Theme.disabledTextColor
+                    border.width: 1
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.margins: 1
+                        height: Math.max((parent.height - 2) * Math.min(root.codexSessionUsagePercent / 100, 1), 1)
+                        radius: 2
+                        color: getCodexUsageColor(root.codexSessionUsagePercent, root.codexHasSessionData)
+                    }
+                }
+                PlasmaComponents.Label {
+                    anchors.centerIn: parent
+                    text: formatCodexPercent(root.codexSessionUsagePercent, root.codexHasSessionData, false)
+                    font.pixelSize: 9
+                    font.bold: true
+                }
+            }
+
+            Item {
+                visible: Plasmoid.configuration.panelStyle === "bar" && root.showCodexWeeklyMetric
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: parent.height
+                opacity: root.codexErrorMsg ? 0.5 : 1
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 3
+                    color: Kirigami.Theme.backgroundColor
+                    border.color: Kirigami.Theme.disabledTextColor
+                    border.width: 1
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.margins: 1
+                        height: Math.max((parent.height - 2) * Math.min(root.codexWeeklyUsagePercent / 100, 1), 1)
+                        radius: 2
+                        color: getCodexUsageColor(root.codexWeeklyUsagePercent, root.codexHasWeeklyData)
+                    }
+                }
+                PlasmaComponents.Label {
+                    anchors.centerIn: parent
+                    text: formatCodexPercent(root.codexWeeklyUsagePercent, root.codexHasWeeklyData, false)
+                    font.pixelSize: 9
+                    font.bold: true
+                }
+            }
+
             // Error text (non-token errors only)
             PlasmaComponents.Label {
                 visible: root.errorMsg !== "" && !root.hasTokenError && !root.hasRateLimitError
@@ -707,15 +983,21 @@ PlasmoidItem {
         Layout.minimumWidth: Kirigami.Units.gridUnit * 14
         Layout.minimumHeight: Kirigami.Units.gridUnit * 16
         Layout.preferredWidth: Kirigami.Units.gridUnit * 16
-        Layout.preferredHeight: Kirigami.Units.gridUnit * 18
+        Layout.preferredHeight: Kirigami.Units.gridUnit * (Plasmoid.configuration.enableCodex === false ? 20 : 32)
 
-        ColumnLayout {
+        QQC2.ScrollView {
+            id: popupScroll
             anchors.fill: parent
-            anchors.margins: Kirigami.Units.largeSpacing
-            spacing: Kirigami.Units.mediumSpacing
+            clip: true
+            contentWidth: availableWidth
+
+            ColumnLayout {
+                x: Kirigami.Units.largeSpacing
+                width: popupScroll.availableWidth - Kirigami.Units.largeSpacing * 2
+                spacing: Kirigami.Units.mediumSpacing
 
             // Header
-            RowLayout {
+                RowLayout {
                 Layout.fillWidth: true
                 PlasmaComponents.Label {
                     text: i18n.tr("Claude Usage")
@@ -736,7 +1018,7 @@ PlasmoidItem {
                         color: Kirigami.Theme.highlightedTextColor
                     }
                 }
-            }
+                }
 
             // Error message (regular errors)
             Rectangle {
@@ -971,6 +1253,56 @@ PlasmoidItem {
             }
 
             // Rate limit warning
+            Rectangle {
+                visible: Plasmoid.configuration.enableCodex !== false
+                Layout.fillWidth: true
+                height: 1
+                color: Kirigami.Theme.disabledTextColor
+                opacity: 0.3
+            }
+
+            RowLayout {
+                visible: Plasmoid.configuration.enableCodex !== false
+                Layout.fillWidth: true
+                PlasmaComponents.Label {
+                    text: i18n.tr("Codex Usage")
+                    font.bold: true
+                    font.pixelSize: Kirigami.Theme.defaultFont.pixelSize * 1.15
+                }
+                Item { Layout.fillWidth: true }
+                PlasmaComponents.Label {
+                    text: root.codexPlanName
+                    color: Kirigami.Theme.disabledTextColor
+                    font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                }
+            }
+
+            PlasmaComponents.Label {
+                visible: Plasmoid.configuration.enableCodex !== false && root.codexErrorMsg !== ""
+                text: "⚠ " + root.codexErrorMsg
+                color: Kirigami.Theme.negativeTextColor
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+            }
+
+            ColumnLayout {
+                visible: Plasmoid.configuration.enableCodex !== false && root.codexErrorMsg === ""
+                Layout.fillWidth: true
+                UsageBar {
+                    visible: root.codexHasSessionData
+                    label: i18n.tr("Session (5hr)")
+                    percent: root.codexSessionUsagePercent
+                    resetTime: root.codexSessionResetTime
+                    available: root.codexHasSessionData
+                }
+                UsageBar {
+                    label: i18n.tr("Weekly (7day)")
+                    percent: root.codexWeeklyUsagePercent
+                    resetTime: root.codexWeeklyResetTime
+                    available: root.codexHasWeeklyData
+                }
+            }
+
             PlasmaComponents.Label {
                 visible: (Plasmoid.configuration.refreshInterval || 5) < 5
                 text: "⚠ " + i18n.tr("Values under 5 min may cause rate limiting")
@@ -1005,6 +1337,7 @@ PlasmoidItem {
                     onClicked: refresh()
                 }
             }
+            }
         }
     }
 
@@ -1029,7 +1362,10 @@ PlasmoidItem {
         interval: Math.max(Plasmoid.configuration.refreshInterval || 5, 1) * 60000
         running: !root.hasRateLimitError
         repeat: true
-        onTriggered: loadCredentials()
+        onTriggered: {
+            loadCredentials()
+            fetchCodexUsage()
+        }
     }
 
     function drawCircularProgress(ctx, w, h, percent) {
@@ -1068,6 +1404,14 @@ PlasmoidItem {
         return Kirigami.Theme.negativeTextColor
     }
 
+    function getCodexUsageColor(percent, available) {
+        return available ? getUsageColor(percent) : Kirigami.Theme.disabledTextColor
+    }
+
+    function formatCodexPercent(percent, available, includeSuffix) {
+        return available ? Math.round(percent) + (includeSuffix ? "%" : "") : "∞"
+    }
+
     function formatTimeRemaining(resetTime) {
         if (!resetTime) return ""
         var now = new Date()
@@ -1088,6 +1432,68 @@ PlasmoidItem {
         }
     }
 
+    component UsageBar: ColumnLayout {
+        id: usageBar
+        required property string label
+        required property real percent
+        required property var resetTime
+        property bool available: true
+        Layout.fillWidth: true
+        spacing: Kirigami.Units.smallSpacing
+        RowLayout {
+            Layout.fillWidth: true
+            PlasmaComponents.Label { text: usageBar.label; font.bold: true }
+            Item { Layout.fillWidth: true }
+            PlasmaComponents.Label { text: formatCodexPercent(usageBar.percent, usageBar.available, true); color: getCodexUsageColor(usageBar.percent, usageBar.available); font.bold: true }
+        }
+        Rectangle {
+            Layout.fillWidth: true
+            height: 10
+            radius: 5
+            color: Kirigami.Theme.backgroundColor
+            border.color: Kirigami.Theme.disabledTextColor
+            border.width: 1
+            Rectangle { width: parent.width * Math.min(usageBar.percent / 100, 1); height: parent.height; radius: 5; color: getUsageColor(usageBar.percent) }
+        }
+        PlasmaComponents.Label {
+            visible: usageBar.resetTime !== null
+            text: usageBar.resetTime ? i18n.tr("Resets:") + " " + Qt.formatDateTime(usageBar.resetTime, "MMM d, hh:mm") + " (" + formatTimeRemaining(usageBar.resetTime) + ")" : ""
+            font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+            color: Kirigami.Theme.disabledTextColor
+        }
+    }
+
+    component OpenAiBadge: Item {
+        Layout.preferredWidth: Kirigami.Units.iconSizes.smallMedium
+        Layout.preferredHeight: Kirigami.Units.iconSizes.smallMedium
+        Layout.leftMargin: Kirigami.Units.smallSpacing
+        Layout.rightMargin: Kirigami.Units.smallSpacing
+        Rectangle {
+            anchors.fill: parent
+            radius: width / 2
+            color: "transparent"
+            border.color: Kirigami.Theme.textColor
+            border.width: 1.5
+            PlasmaComponents.Label {
+                anchors.centerIn: parent
+                text: "O"
+                font.bold: true
+                font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+            }
+        }
+        Rectangle {
+            visible: root.codexErrorMsg !== ""
+            width: 8
+            height: 8
+            radius: 4
+            color: Kirigami.Theme.negativeTextColor
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: -2
+            anchors.bottomMargin: -2
+        }
+    }
+
     // Install icon to system theme for about page
     Plasma5Support.DataSource {
         id: iconInstaller
@@ -1103,6 +1509,7 @@ PlasmoidItem {
         cacheReader.connectSource("cat $HOME/.local/share/claude-usage-cache.json 2>/dev/null")
         versionReader.connectSource("claude --version 2>/dev/null")
         loadCredentials()
+        fetchCodexUsage()
     }
 
     // Only use custom background on desktop, panel keeps default Plasma background
@@ -1123,7 +1530,7 @@ PlasmoidItem {
     }
 
     Plasmoid.icon: "claude-usage-widget"
-    toolTipMainText: i18n.tr("Claude Usage")
+    toolTipMainText: i18n.tr("Claude & Codex Usage")
     toolTipSubText: {
         var parts = []
         if (Plasmoid.configuration.showSession !== false)
@@ -1132,6 +1539,12 @@ PlasmoidItem {
             parts.push(i18n.tr("Weekly (7day)") + ": " + Math.round(root.weeklyUsagePercent) + "%")
         if (Plasmoid.configuration.showFable === true)
             parts.push(i18n.tr("Fable") + ": " + Math.round(root.fableWeeklyPercent) + "%")
+        if (Plasmoid.configuration.enableCodex !== false) {
+            if (root.codexHasSessionData)
+                parts.push(i18n.tr("Codex") + " 5h: " + formatCodexPercent(root.codexSessionUsagePercent, true, true))
+            if (root.codexHasWeeklyData)
+                parts.push(i18n.tr("Codex") + " 7d: " + formatCodexPercent(root.codexWeeklyUsagePercent, true, true))
+        }
         return parts.join(" | ")
     }
 }

@@ -38,6 +38,18 @@
             <label>Show Fable weekly usage in panel</label>
             <default>false</default>
         </entry>
+        <entry name="enableCodex" type="Bool">
+            <label>Fetch Codex usage statistics</label>
+            <default>true</default>
+        </entry>
+        <entry name="showCodexSession" type="Bool">
+            <label>Show Codex session usage in panel</label>
+            <default>true</default>
+        </entry>
+        <entry name="showCodexWeekly" type="Bool">
+            <label>Show Codex weekly usage in panel</label>
+            <default>true</default>
+        </entry>
         <entry name="baseUrl" type="String">
             <label>Custom API base URL (leave empty to use ~/.claude/.credentials.json)</label>
             <default></default>
