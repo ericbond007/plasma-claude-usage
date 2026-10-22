@@ -284,15 +284,95 @@ PlasmoidItem {
         }
     }
 
-    // Cache writer
-    Plasma5Support.DataSource {
-        id: cacheWriter
-        engine: "executable"
-        connectedSources: []
-        onNewData: function(sourceName, data) { disconnectSource(sourceName) }
+    // Cache. It lives in a hidden config entry, so saving it runs no process.
+    // It used to be written with `echo '<json>' > file`: every save was a new
+    // executable source named after the whole JSON (12-20 KB with the trend
+    // samples), and plasma5support keeps every source name it has seen as a
+    // property of each DataSource in plasmashell, which grew by megabytes per
+    // save. The old file is still read once, to carry its data over.
+    property string lastSavedCache: ""
+
+    // Claude and Codex each have their own timestamp (0 = never fetched), so a
+    // Codex-only save never revives stale Claude numbers after a restart and
+    // vice versa (fork addition).
+    function applyCache(cache, timestamp, codexTimestamp) {
+        applyClaudeCache(cache, timestamp)
+        applyCodexCache(cache, codexTimestamp)
     }
 
-    // Cache reader
+    function applyCodexCache(cache, codexTimestamp) {
+        var codexAge = Date.now() - (codexTimestamp || 0)
+        if (codexTimestamp > root.codexLastSuccessTime && !root.codexCliMissing && codexAge < 86400000) {
+            root.codexSessionUsagePercent = cache.codexSession || 0
+            root.codexWeeklyUsagePercent = cache.codexWeekly || 0
+            root.codexHasSessionData = cache.codexHasSession === true
+            root.codexHasWeeklyData = cache.codexHasWeekly === true
+            root.codexPlanName = cache.codexPlan || ""
+            root.codexSessionResetTime = cache.codexSessionResetTs ? new Date(cache.codexSessionResetTs) : null
+            root.codexWeeklyResetTime = cache.codexWeeklyResetTs ? new Date(cache.codexWeeklyResetTs) : null
+            root.codexSessionWindowMs = cache.codexSessionWindowMs || 18000000
+            root.codexWeeklyWindowMs = cache.codexWeeklyWindowMs || 604800000
+            root.codexLastSuccessTime = codexTimestamp
+            console.log("Claude Usage: Loaded Codex cache, age:", Math.round(codexAge/60000), "min")
+        }
+    }
+
+    function applyClaudeCache(cache, timestamp) {
+        if (!(timestamp > 0)) {
+            console.log("Claude Usage: Cache has no Claude data yet")
+            return
+        }
+        var age = Date.now() - timestamp
+        if (age >= 86400000) {
+            console.log("Claude Usage: Cache too old, ignoring")
+            return
+        }
+        root.sessionUsagePercent = cache.session || 0
+        root.weeklyUsagePercent = cache.weekly || 0
+        root.sonnetWeeklyPercent = cache.sonnet || 0
+        root.opusWeeklyPercent = cache.opus || 0
+        root.hasSonnetData = cache.hasSonnet || false
+        root.hasOpusData = cache.hasOpus || false
+        if (cache.modelLimits) {
+            root.modelLimits = cache.modelLimits
+        } else {
+            var legacyLimits = []
+            if (cache.hasSonnet) legacyLimits.push({ label: "Sonnet", percent: cache.sonnet || 0 })
+            if (cache.hasOpus) legacyLimits.push({ label: "Opus", percent: cache.opus || 0 })
+            root.modelLimits = legacyLimits
+        }
+        root.modelUsage = cache.models || []
+        root.usageSamples = cache.samples || []
+        root.extraEnabled = cache.extraEnabled || false
+        root.extraUsedCents = cache.extraUsed || 0
+        root.extraLimitCents = cache.extraLimit || 0
+        root.planName = cache.plan || ""
+        root.sessionReset = cache.sessionReset || ""
+        root.weeklyReset = cache.weeklyReset || ""
+        root.sessionResetTime = cache.sessionResetTs ? new Date(cache.sessionResetTs) : null
+        root.weeklyResetTime = cache.weeklyResetTs ? new Date(cache.weeklyResetTs) : null
+        root.lastSuccessTime = timestamp
+        root.lastUpdate = Qt.formatTime(new Date(timestamp), "hh:mm:ss") + " *"
+        root.isStale = age > root.staleThresholdMs
+        console.log("Claude Usage: Loaded cache, age:", Math.round(age/60000), "min, stale:", root.isStale)
+    }
+
+    function loadCache() {
+        var stored = Plasmoid.configuration.usageCache || ""
+        if (stored.length > 10) {
+            try {
+                applyCache(JSON.parse(stored), Number(Plasmoid.configuration.usageCacheTime) || 0,
+                           Number(Plasmoid.configuration.codexCacheTime) || 0)
+                root.lastSavedCache = stored
+                return
+            } catch (e) {
+                console.log("Claude Usage: Cache parse error:", e)
+            }
+        }
+        cacheReader.connectSource("cat " + root.cacheFileExpr + " 2>/dev/null")
+    }
+
+    // Reads the cache file of earlier versions (once, until the first save)
     Plasma5Support.DataSource {
         id: cacheReader
         engine: "executable"
@@ -304,57 +384,7 @@ PlasmoidItem {
             if (stdout.length > 10) {
                 try {
                     var cache = JSON.parse(stdout)
-                    var age = Date.now() - (cache.timestamp || 0)
-                    if (cache.timestamp > 0 && age < 86400000) {
-                        root.sessionUsagePercent = cache.session || 0
-                        root.weeklyUsagePercent = cache.weekly || 0
-                        root.sonnetWeeklyPercent = cache.sonnet || 0
-                        root.opusWeeklyPercent = cache.opus || 0
-                        root.hasSonnetData = cache.hasSonnet || false
-                        root.hasOpusData = cache.hasOpus || false
-                        if (cache.modelLimits) {
-                            root.modelLimits = cache.modelLimits
-                        } else {
-                            var legacyLimits = []
-                            if (cache.hasSonnet) legacyLimits.push({ label: "Sonnet", percent: cache.sonnet || 0 })
-                            if (cache.hasOpus) legacyLimits.push({ label: "Opus", percent: cache.opus || 0 })
-                            root.modelLimits = legacyLimits
-                        }
-                        root.modelUsage = cache.models || []
-                        root.usageSamples = cache.samples || []
-                        root.extraEnabled = cache.extraEnabled || false
-                        root.extraUsedCents = cache.extraUsed || 0
-                        root.extraLimitCents = cache.extraLimit || 0
-                        root.planName = cache.plan || ""
-                        root.sessionReset = cache.sessionReset || ""
-                        root.weeklyReset = cache.weeklyReset || ""
-                        root.sessionResetTime = cache.sessionResetTs ? new Date(cache.sessionResetTs) : null
-                        root.weeklyResetTime = cache.weeklyResetTs ? new Date(cache.weeklyResetTs) : null
-                        root.lastSuccessTime = cache.timestamp
-                        root.lastUpdate = Qt.formatTime(new Date(cache.timestamp), "hh:mm:ss") + " *"
-                        root.isStale = age > root.staleThresholdMs
-                        console.log("Claude Usage: Loaded cache, age:", Math.round(age/60000), "min, stale:", root.isStale)
-                    } else if (cache.timestamp > 0) {
-                        console.log("Claude Usage: Cache too old, ignoring")
-                    } else {
-                        console.log("Claude Usage: Cache has no Claude data yet")
-                    }
-                    // Codex block (fork addition): its own timestamp, so a Codex-only save
-                    // never revives Claude numbers and vice versa.
-                    var codexAge = Date.now() - (cache.codexTimestamp || 0)
-                    if (cache.codexTimestamp > root.codexLastSuccessTime && !root.codexCliMissing && codexAge < 86400000) {
-                        root.codexSessionUsagePercent = cache.codexSession || 0
-                        root.codexWeeklyUsagePercent = cache.codexWeekly || 0
-                        root.codexHasSessionData = cache.codexHasSession === true
-                        root.codexHasWeeklyData = cache.codexHasWeekly === true
-                        root.codexPlanName = cache.codexPlan || ""
-                        root.codexSessionResetTime = cache.codexSessionResetTs ? new Date(cache.codexSessionResetTs) : null
-                        root.codexWeeklyResetTime = cache.codexWeeklyResetTs ? new Date(cache.codexWeeklyResetTs) : null
-                        root.codexSessionWindowMs = cache.codexSessionWindowMs || 18000000
-                        root.codexWeeklyWindowMs = cache.codexWeeklyWindowMs || 604800000
-                        root.codexLastSuccessTime = cache.codexTimestamp
-                        console.log("Claude Usage: Loaded Codex cache, age:", Math.round(codexAge/60000), "min")
-                    }
+                    applyCache(cache, cache.timestamp, cache.codexTimestamp)
                 } catch (e) {
                     console.log("Claude Usage: Cache parse error:", e)
                 }
@@ -389,14 +419,25 @@ PlasmoidItem {
             codexSessionResetTs: root.codexSessionResetTime ? root.codexSessionResetTime.getTime() : null,
             codexWeeklyResetTs: root.codexWeeklyResetTime ? root.codexWeeklyResetTime.getTime() : null,
             codexSessionWindowMs: root.codexSessionWindowMs,
-            codexWeeklyWindowMs: root.codexWeeklyWindowMs,
-            codexTimestamp: root.codexLastSuccessTime,
-            // Claude's last success (0 = never): a Codex-triggered save must not
-            // make unfetched or stale Claude numbers look current after a restart.
-            timestamp: root.lastSuccessTime
+            codexWeeklyWindowMs: root.codexWeeklyWindowMs
         }
         var json = JSON.stringify(cache)
-        cacheWriter.connectSource("echo '" + json.replace(/'/g, "'\\''") + "' > " + root.cacheFileExpr)
+        if (json !== root.lastSavedCache) {
+            Plasmoid.configuration.usageCache = json
+            root.lastSavedCache = json
+        }
+        // The ages decide whether the cached values are shown after a restart.
+        // Each is its side's last success (0 = never), not the save time: a
+        // Codex-triggered save must not make unfetched or stale Claude numbers
+        // look current, and vice versa.
+        Plasmoid.configuration.usageCacheTime = String(root.lastSuccessTime)
+        Plasmoid.configuration.codexCacheTime = String(root.codexLastSuccessTime)
+
+        // Model names for the settings page
+        var known = (root.modelLimits || []).map(function(m) { return m.label || "" })
+            .filter(function(n) { return n !== "" }).join(",")
+        if (known !== "" && known !== Plasmoid.configuration.knownModels)
+            Plasmoid.configuration.knownModels = known
     }
 
     // Stale checker
@@ -413,14 +454,16 @@ PlasmoidItem {
     }
 
     // Token watcher
+    // Polled only while rate limited. A persistent source re-run by the
+    // engine, so plasma5support does not add and remove one every 30 s.
     Plasma5Support.DataSource {
         id: tokenWatcher
         engine: "executable"
-        connectedSources: []
+        interval: 30000
+        connectedSources: root.hasRateLimitError && !root.baseUrl ? [readCredentialsCmd()] : []
 
         onNewData: function(sourceName, data) {
             var stdout = (data["stdout"] || "").trim()
-            disconnectSource(sourceName)
             if (stdout.length > 10) {
                 try {
                     var creds = JSON.parse(stdout)
@@ -440,25 +483,17 @@ PlasmoidItem {
         }
     }
 
-    Timer {
-        id: tokenWatchTimer
-        interval: 30000
-        running: root.hasRateLimitError && !root.baseUrl
-        repeat: true
-        onTriggered: {
-            tokenWatcher.connectSource(readCredentialsCmd())
-        }
-    }
-
     // Process checker (visibility feature)
+    // Polled while the visibility setting needs it, as one persistent source
     Plasma5Support.DataSource {
         id: processChecker
         engine: "executable"
-        connectedSources: []
+        interval: Math.max(Plasmoid.configuration.processCheckInterval || 30, 5) * 1000
+        connectedSources: (Plasmoid.configuration.processVisibility || "always") !== "always"
+            ? ["pgrep -x claude 2>/dev/null"] : []
 
         onNewData: function(sourceName, data) {
             var stdout = data["stdout"] || ""
-            disconnectSource(sourceName)
 
             if (root.silentRefreshRunning) return
 
@@ -478,10 +513,8 @@ PlasmoidItem {
         }
     }
 
-    function checkClaudeProcess() {
-        processChecker.connectSource("pgrep -x claude 2>/dev/null")
-    }
-
+    // processChecker runs as soon as its source is connected and corrects the
+    // status from there; until then the last known state is used.
     function updateProcessVisibility() {
         var vis = Plasmoid.configuration.processVisibility || "always"
         if (vis === "always") {
@@ -489,19 +522,9 @@ PlasmoidItem {
             Plasmoid.status = PlasmaCore.Types.ActiveStatus
         } else if (vis === "hide_usage") {
             Plasmoid.status = PlasmaCore.Types.ActiveStatus
-            checkClaudeProcess()
         } else {
-            Plasmoid.status = PlasmaCore.Types.HiddenStatus
-            checkClaudeProcess()
+            Plasmoid.status = root.claudeRunning ? PlasmaCore.Types.ActiveStatus : PlasmaCore.Types.HiddenStatus
         }
-    }
-
-    Timer {
-        id: processCheckTimer
-        interval: Math.max(Plasmoid.configuration.processCheckInterval || 30, 5) * 1000
-        running: (Plasmoid.configuration.processVisibility || "always") !== "always"
-        repeat: true
-        onTriggered: checkClaudeProcess()
     }
 
     Connections {
@@ -517,7 +540,6 @@ PlasmoidItem {
             // Reads already in flight carry the old path in their source name,
             // so drop them before they can land on top of the new account.
             fileReader.connectedSources = []
-            tokenWatcher.connectedSources = []
             usageFetcher.connectedSources = []
             emailReader.connectedSources = []
 
@@ -537,7 +559,10 @@ PlasmoidItem {
             root.usageSamples = []
             root.tokenStats = []
             updatePlanName()
-            cacheReader.connectSource("cat " + root.cacheFileExpr + " 2>/dev/null")
+            Plasmoid.configuration.usageCache = ""
+            Plasmoid.configuration.usageCacheTime = ""
+            root.lastSavedCache = ""
+            loadCache()
 
             refresh()
             refreshTokenStats()
@@ -1921,6 +1946,31 @@ PlasmoidItem {
                             font.pixelSize: Kirigami.Theme.smallFont.pixelSize
                             color: Kirigami.Theme.disabledTextColor
                         }
+                        // Widget update: green pill, opens "Get New Widgets"
+                        Rectangle {
+                            visible: root.widgetUpdateAvailable
+                            Layout.preferredWidth: classicWidgetUpdateLabel.implicitWidth + Kirigami.Units.largeSpacing
+                            Layout.preferredHeight: classicWidgetUpdateLabel.implicitHeight + Kirigami.Units.smallSpacing
+                            radius: height / 2
+                            color: Qt.alpha(Kirigami.Theme.positiveTextColor, classicWidgetUpdateMouse.containsMouse ? 0.3 : 0.18)
+
+                            PlasmaComponents.Label {
+                                id: classicWidgetUpdateLabel
+                                anchors.centerIn: parent
+                                text: "⬆ " + i18n.tr("Widget update") + " " + root.widgetLatestVersion
+                                font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                                font.bold: true
+                                color: Kirigami.Theme.positiveTextColor
+                            }
+
+                            MouseArea {
+                                id: classicWidgetUpdateMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.openWidgetUpdates()
+                            }
+                        }
                         Item { Layout.fillWidth: true }
                         PlasmaComponents.Button {
                             icon.name: "view-refresh"
@@ -2086,6 +2136,58 @@ PlasmoidItem {
         return key === "fable" ? "#D97757" : getUsageColor(percent)
     }
 
+    // ===== Widget update check =====
+    // Asks the KDE Store (the same data Discover uses) for this widget's latest
+    // version once a day. Only a low-key label in the popup footer shows it.
+    readonly property string storeProductId: "2331316"
+    readonly property string widgetVersion: Plasmoid.metaData.version || ""
+    property string widgetLatestVersion: ""
+    readonly property bool widgetUpdateAvailable: Plasmoid.configuration.checkWidgetUpdates !== false
+        && root.widgetVersion !== "" && root.widgetLatestVersion !== ""
+        && isNewerVersion(root.widgetLatestVersion, root.widgetVersion)
+
+    Plasma5Support.DataSource {
+        id: widgetUpdateChecker
+        engine: "executable"
+        connectedSources: []
+
+        onNewData: function(sourceName, data) {
+            var stdout = data["stdout"] || ""
+            disconnectSource(sourceName)
+            var m = stdout.match(/<content[^>]*>[\s\S]*?<version>([^<]+)<\/version>/)
+            if (m) {
+                root.widgetLatestVersion = m[1].trim()
+                widgetUpdateTimer.interval = 86400000
+                console.log("Claude Usage: widget store version:", root.widgetLatestVersion, "installed:", root.widgetVersion)
+            } else {
+                // offline at login, or the Store is down: try again in an hour
+                widgetUpdateTimer.interval = 3600000
+            }
+        }
+    }
+
+    Timer {
+        id: widgetUpdateTimer
+        interval: 120000   // first check shortly after login, then daily
+        running: Plasmoid.configuration.checkWidgetUpdates !== false
+        repeat: true
+        onTriggered: widgetUpdateChecker.connectSource("curl -sS --max-time 10 https://api.kde-look.org/ocs/v1/content/data/" + root.storeProductId + " 2>/dev/null")
+    }
+
+    Plasma5Support.DataSource {
+        id: widgetUpdateLauncher
+        engine: "executable"
+        connectedSources: []
+        onNewData: function(sourceName, data) { disconnectSource(sourceName) }
+    }
+
+    // "Get New Widgets" lists the update reliably; Discover and the Store page are fallbacks.
+    function openWidgetUpdates() {
+        widgetUpdateLauncher.connectSource("sh -c 'if command -v knewstuff-dialog6 >/dev/null; then setsid knewstuff-dialog6 plasmoids.knsrc; "
+            + "elif command -v plasma-discover >/dev/null; then setsid plasma-discover --mode update; "
+            + "else xdg-open https://store.kde.org/p/" + root.storeProductId + "; fi >/dev/null 2>&1 &'")
+    }
+
     function isNewerVersion(a, b) {
         var pa = a.split(".").map(Number)
         var pb = b.split(".").map(Number)
@@ -2096,13 +2198,16 @@ PlasmoidItem {
         return false
     }
 
+    // While an update is shown, notice `claude update`: every 30 minutes and
+    // whenever the popup opens (it used to run every minute).
+    onExpandedChanged: if (expanded && root.updateAvailable) versionReader.connectSource("claude --version 2>/dev/null")
+
     Timer {
         id: versionRecheckTimer
-        interval: 60000
+        interval: 1800000
         running: root.updateAvailable && Plasmoid.configuration.enableUpdateCheck !== false
         repeat: true
         onTriggered: versionReader.connectSource("claude --version 2>/dev/null")
-        onRunningChanged: if (running) versionReader.connectSource("claude --version 2>/dev/null")
     }
 
     Plasma5Support.DataSource {
@@ -2162,7 +2267,7 @@ PlasmoidItem {
         reloadQuickLinks()
         var iconSource = Qt.resolvedUrl("../icons/claude-usage-widget.svg").toString().replace("file://", "")
         iconInstaller.connectSource("bash -c 'ICON_DIR=${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps && mkdir -p $ICON_DIR && cp \"" + iconSource + "\" $ICON_DIR/claude-usage-widget.svg && chmod 644 $ICON_DIR/claude-usage-widget.svg 2>/dev/null'")
-        cacheReader.connectSource("cat " + root.cacheFileExpr + " 2>/dev/null")
+        loadCache()
         versionReader.connectSource("claude --version 2>/dev/null")
         emailReader.connectSource(readAccountCmd())
         if (Plasmoid.configuration.enableUpdateCheck !== false) checkForUpdate()

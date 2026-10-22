@@ -812,7 +812,7 @@ Item {
                         PlasmaComponents.Label {
                             id: updateLabel
                             anchors.centerIn: parent
-                            text: "⬆ " + root.latestVersion + " " + i18n.tr("available")
+                            text: "⬆ Claude Code " + root.latestVersion + " " + i18n.tr("available")
                             font.pixelSize: Kirigami.Theme.smallFont.pixelSize
                             font.bold: true; color: full.accent
                         }
@@ -821,6 +821,32 @@ Item {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
                             onClicked: root.launchInTerminal("claude update")
+                        }
+                    }
+
+                    // Widget update: green pill, opens "Get New Widgets"
+                    Rectangle {
+                        visible: root.widgetUpdateAvailable
+                        Layout.preferredWidth: widgetUpdateLabel.implicitWidth + Kirigami.Units.largeSpacing
+                        Layout.preferredHeight: widgetUpdateLabel.implicitHeight + Kirigami.Units.smallSpacing
+                        radius: height / 2
+                        color: Qt.alpha(Kirigami.Theme.positiveTextColor, widgetUpdateMouse.containsMouse ? 0.3 : 0.18)
+
+                        PlasmaComponents.Label {
+                            id: widgetUpdateLabel
+                            anchors.centerIn: parent
+                            text: "⬆ " + i18n.tr("Widget update") + " " + root.widgetLatestVersion
+                            font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                            font.bold: true
+                            color: Kirigami.Theme.positiveTextColor
+                        }
+
+                        MouseArea {
+                            id: widgetUpdateMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.openWidgetUpdates()
                         }
                     }
 

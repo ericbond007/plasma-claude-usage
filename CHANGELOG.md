@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.2.1] - 2026-10-22 (Codex fork)
+
+### Changed
+
+- Rebased the fork onto upstream v2.5.2, which fixes the plasmashell memory leak: the cache (Claude and Codex alike) now lives in the widget's settings instead of being written with a shell command named after the whole JSON. Codex keeps its own cache timestamp (`codexCacheTime`), so a Codex-only save still cannot revive stale Claude numbers after a restart, and vice versa
+- The Codex settings follow upstream's new tabs: the "Codex" section (include Codex usage; the two show-in-panel windows) stays on the **General** tab, and the Codex card joins the **Popup** tab's card order
+
+## [2.5.2] - 2026-10-22
+
+### Fixed
+
+- **plasmashell memory leak**: every cache save ran a new shell command named after the whole cached JSON, and Plasma keeps every such command name in memory, so plasmashell grew by megabytes per save (~5.6 MB/min with both usage widgets). The cache now lives in the widget's own settings and is saved without running a command; the old cache file is read once to carry the data over
+- The process and token watchers poll one persistent source instead of starting a new command each time, and the Claude Code version recheck runs every 30 minutes and when the popup opens instead of every minute
+- The "Show in panel" model checkboxes in the settings appear again (the page read the wrong field of the cached model list)
+
+## [2.5.1] - 2026-10-19
+
+### Added
+
+- **Widget update notice**: the widget checks the KDE Store (the same data Discover uses) once a day for a newer version of itself. A green "Widget update X.Y.Z" badge in the popup footer opens "Get New Widgets"; the General settings tab shows the installed version with "Up to date" or an Update button. Can be turned off with "Check for widget updates"
+
+## [2.5.0] - 2026-10-17
+
+### Added
+
+- **Ring logo size** setting (50–100%, default 85% of the ring's inner diameter) for the Logo and Logo + % ring modes
+
+### Changed
+
+- Settings are grouped into **General**, **Panel**, **Popup** and **Account** tabs instead of one long page; the tab names follow the widget's language
+- Ring options are only enabled for the ring style, the ring logo size only in the logo modes
+- The popup's update badge now says "Claude Code 2.1.x available", so it no longer looks like a widget update ([#27](https://github.com/izll/plasma-claude-usage/issues/27), thanks @rj-au)
+
+## [2.4.2] - 2026-10-10
+
+### Fixed
+
+- plasmashell no longer hangs at 100% CPU with the "Bar" panel style in the vertical layout — the bars' height fed back into the widget's own height ([#26](https://github.com/izll/plasma-claude-usage/issues/26), thanks @grzebo)
+
 ## [2.4.1.1] - 2026-10-07 (Codex fork)
 
 ### Added
@@ -272,6 +311,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable refresh interval
 - Error handling for login issues
 
+[2.5.2]: https://github.com/izll/plasma-claude-usage/compare/v2.5.1...v2.5.2
+[2.5.1]: https://github.com/izll/plasma-claude-usage/compare/v2.5.0...v2.5.1
+[2.5.0]: https://github.com/izll/plasma-claude-usage/compare/v2.4.2...v2.5.0
+[2.4.2]: https://github.com/izll/plasma-claude-usage/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/izll/plasma-claude-usage/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/izll/plasma-claude-usage/compare/v2.3.5...v2.4.0
 [2.3.6]: https://github.com/izll/plasma-claude-usage/pull/22

@@ -42,6 +42,10 @@
             <label>Ring center content (percent or logo)</label>
             <default>percent</default>
         </entry>
+        <entry name="ringLogoSize" type="Int">
+            <label>Logo size inside the ring, as a percentage of its inner diameter</label>
+            <default>85</default>
+        </entry>
         <entry name="panelStyle" type="String">
             <label>Panel display style (text or circular)</label>
             <default>ring</default>
@@ -94,6 +98,10 @@
             <label>Check for Claude Code updates via npm registry</label>
             <default>true</default>
         </entry>
+        <entry name="checkWidgetUpdates" type="Bool">
+            <label>Check the KDE Store for a newer version of this widget</label>
+            <default>true</default>
+        </entry>
         <entry name="showInstallations" type="Bool">
             <label>Show Claude Code installations in popup</label>
             <default>false</default>
@@ -109,6 +117,22 @@
         <entry name="processCheckInterval" type="Int">
             <label>Process check interval in seconds</label>
             <default>30</default>
+        </entry>
+        <entry name="usageCache" type="String">
+            <label>Last usage data (internal cache, JSON)</label>
+            <default></default>
+        </entry>
+        <entry name="usageCacheTime" type="String">
+            <label>When the usage data was last fetched (ms since epoch, internal)</label>
+            <default></default>
+        </entry>
+        <entry name="codexCacheTime" type="String">
+            <label>When the Codex usage data was last fetched (ms since epoch, internal; fork)</label>
+            <default></default>
+        </entry>
+        <entry name="knownModels" type="String">
+            <label>Model names seen in the usage data, for the settings page (internal)</label>
+            <default></default>
         </entry>
         <entry name="credentialsPath" type="String">
             <label>Path to .credentials.json or the folder containing it (empty = $CLAUDE_CONFIG_DIR, else ~/.claude)</label>

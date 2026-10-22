@@ -20,6 +20,7 @@ Item {
     property real fontScale: 0.3
     property string centerIcon: ""
     property bool centerPercentOverlay: false
+    property real logoScale: 0.85   // logo size as a fraction of the ring's inner diameter
     property string cornerLabel: ""
     property real markerRel: -1   // elapsed-time fraction 0..1 shown as a dot; < 0 hides it
     property string centerText: ""   // overrides the percentage (e.g. "∞" for a window with no limit data)
@@ -115,7 +116,7 @@ Item {
     Image {
         visible: ring.centerIcon !== ""
         anchors.centerIn: parent
-        width: (ring.arcRadius - ring.lineWidth) * (ring.centerPercentOverlay ? 1.7 : 1.3)
+        width: 2 * (ring.arcRadius - ring.lineWidth / 2) * ring.logoScale
         height: width
         source: ring.centerIcon
         sourceSize: Qt.size(width * 2, height * 2)
