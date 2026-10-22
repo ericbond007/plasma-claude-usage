@@ -22,7 +22,7 @@ cleanup() {
 trap cleanup EXIT
 
 printf '%s\n' \
-    '{"id":1,"method":"initialize","params":{"clientInfo":{"name":"plasma-claude-usage","title":"Plasma AI Usage","version":"2.4.1.1"}}}' \
+    '{"id":1,"method":"initialize","params":{"clientInfo":{"name":"plasma-claude-usage","title":"Plasma AI Usage","version":"2.5.2.1"}}}' \
     '{"method":"initialized"}' \
     '{"id":2,"method":"account/rateLimits/read"}' \
     >&"${CODEX_USAGE_SERVER[1]}"

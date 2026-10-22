@@ -98,9 +98,11 @@
             <label>Check for Claude Code updates via npm registry</label>
             <default>true</default>
         </entry>
+        <!-- Fork: off by default. The Store entry (storeProductId) is upstream's package, which has no
+             Codex support; installing it from the notice would replace this fork. -->
         <entry name="checkWidgetUpdates" type="Bool">
             <label>Check the KDE Store for a newer version of this widget</label>
-            <default>true</default>
+            <default>false</default>
         </entry>
         <entry name="showInstallations" type="Bool">
             <label>Show Claude Code installations in popup</label>

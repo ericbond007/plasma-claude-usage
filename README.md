@@ -6,12 +6,12 @@ A KDE Plasma 6 widget that displays your Claude Code usage statistics in the tas
 
 ## This fork: Codex support
 
-This is [izll/plasma-claude-usage](https://github.com/izll/plasma-claude-usage) v2.4.1 plus **OpenAI Codex usage** in the same widget:
+This is [izll/plasma-claude-usage](https://github.com/izll/plasma-claude-usage) v2.5.2 plus **OpenAI Codex usage** in the same widget:
 
 - Codex rate-limit windows (5-hour session + weekly on paid plans; a single 30-day window on the free plan), plan and reset times, labelled from the window length Codex reports, read live from the local Codex CLI (`contents/scripts/codex-usage.sh` runs `codex app-server --stdio` and asks `account/rateLimits/read`; no credentials pass through the widget).
 - Panel: Codex metrics follow the chosen style (ring / text / bar) after the Claude ones, marked with a circled "O"; a red dot means the last Codex read failed.
 - Popup: a **Codex** card in both the card and classic layouts, movable/hideable like the other cards.
-- Settings → **Codex**: turn Codex on/off and pick which Codex metrics show in the panel. Codex is independent of the Claude-process visibility option.
+- Settings → **General → Codex**: turn Codex on/off and pick which Codex metrics show in the panel. Codex is independent of the Claude-process visibility option.
 - Upgrading from the fork's v1.x: the old "Show Fable weekly usage in panel" option is migrated once into upstream's per-model panel list (upstream now shows Fable and other per-model weekly limits itself).
 
 ## Features
@@ -25,7 +25,7 @@ This is [izll/plasma-claude-usage](https://github.com/izll/plasma-claude-usage) 
 - **Classic Popup**: Traditional layout with progress bars (switchable in settings)
 - **Desktop Notifications**: Alerts when usage crosses thresholds (50/80/95% session, 95% weekly, quota reset)
 - **Update Checker**: Orange dot on panel icon when a new Claude Code version is available
-- **Widget Update Notice**: Green badge in the popup when a newer version of the widget is on the KDE Store, opening "Get New Widgets"
+- **Widget Update Notice**: Green badge in the popup when a newer version of the widget is on the KDE Store, opening "Get New Widgets" (off by default in this fork: the Store entry is upstream's package, which would replace the fork and drop Codex)
 - **Process Visibility**: Hide widget or usage when Claude is not running
 - **Configurable Refresh**: Default 5 min polling (adjustable in settings)
 - **Smart Rate Limit Handling**: Uses `retry-after` header, exponential backoff, and token watcher for automatic recovery
@@ -77,7 +77,7 @@ kpackagetool6 -t Plasma/Applet -i .
 
 Right-click the widget and select **Configure...** to open the settings. They are grouped into tabs:
 
-- **General**: language, refresh interval, notifications, update check, colors, visibility when Claude is not running
+- **General**: language, refresh interval, notifications, update check, Codex (on/off and its two panel windows), colors, visibility when Claude is not running
 - **Panel**: style, what to show, layout, metrics size, margin, ring center and logo size, window labels, icon
 - **Popup**: card or classic style, scrolling, desktop background opacity, card order, quick links
 - **Account**: credentials location, automatic session refresh, custom API
@@ -174,9 +174,12 @@ claude-usage-widget/
 │   ├── config/
 │   │   ├── config.qml         # Settings tabs
 │   │   └── main.xml           # Configuration schema
+│   ├── scripts/
+│   │   └── codex-usage.sh     # Codex rate limits via the local Codex CLI (fork)
 │   ├── ui/
 │   │   ├── main.qml           # Core logic, data, API
 │   │   ├── CompactView.qml    # Panel representation (text/bar/ring)
+│   │   ├── CodexBadge.qml     # Codex marker next to the Codex panel metrics (fork)
 │   │   ├── FullView.qml       # Card popup with drag & drop
 │   │   ├── UsageRing.qml      # Anti-aliased progress ring component
 │   │   ├── ModelRow.qml       # Model breakdown row component

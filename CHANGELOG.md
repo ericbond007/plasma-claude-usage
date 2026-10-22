@@ -7,10 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.5.2.1] - 2026-10-22 (Codex fork)
 
+### Fixed
+
+- Merged upstream v2.5.2, which fixes the plasmashell memory leak: the cache (Claude and Codex alike) now lives in the widget's settings instead of being written with a shell command named after the whole JSON. Codex keeps its own cache timestamp (`codexCacheTime`), so a Codex-only save still cannot revive stale Claude numbers after a restart, and vice versa
+- The two Codex bars in the panel take upstream's v2.4.2 fix for the vertical-layout 100% CPU hang (#26), which the fork's copies of the bars had missed
+
 ### Changed
 
-- Rebased the fork onto upstream v2.5.2, which fixes the plasmashell memory leak: the cache (Claude and Codex alike) now lives in the widget's settings instead of being written with a shell command named after the whole JSON. Codex keeps its own cache timestamp (`codexCacheTime`), so a Codex-only save still cannot revive stale Claude numbers after a restart, and vice versa
 - The Codex settings follow upstream's new tabs: the "Codex" section (include Codex usage; the two show-in-panel windows) stays on the **General** tab, and the Codex card joins the **Popup** tab's card order
+- Upstream's new widget-update notice is off by default here: the KDE Store entry it checks is upstream's package, which has no Codex support and would replace this fork if installed from the notice
 
 ## [2.5.2] - 2026-10-22
 

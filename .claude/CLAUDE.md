@@ -98,7 +98,7 @@ To publish to KDE Store:
 
 ## Fork: Codex support (ericbond007, 2026-10-07)
 
-This branch is upstream v2.4.1 plus Codex. Everything Codex-related is marked "fork addition" in comments:
+This branch is upstream v2.5.2 plus Codex. Everything Codex-related is marked "fork addition" in comments:
 
 - `contents/scripts/codex-usage.sh` — starts `codex app-server --stdio`, sends `initialize` then `account/rateLimits/read` (JSON-RPC over stdio), prints the `id:2` response. `result.rateLimits.primary/secondary` carry `usedPercent`, `windowDurationMins`, `resetsAt` (epoch seconds); `planType` is the plan.
 - `main.qml` — `codex*` properties, `codexReader`, `fetchCodexUsage()`, its own `codexRefreshTimer` (Claude's `refreshTimer` pauses on Claude rate limits), cache fields, tooltip, classic `classicCodexComp`, `withMissingCards()`, `migrateLegacyConfig()`.

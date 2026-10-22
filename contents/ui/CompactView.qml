@@ -422,7 +422,7 @@ Item {
         Item {
             visible: root.showCodexSessionMetric && root.effectivePanelStyle === "bar"
             Layout.preferredWidth: compact.barWidth
-            Layout.preferredHeight: parent.height
+            Layout.preferredHeight: root.isVerticalLayout ? compact.barHeight : parent.height
             opacity: root.codexPanelOpacity
 
             Rectangle {
@@ -468,7 +468,7 @@ Item {
         Item {
             visible: root.showCodexWeeklyMetric && root.effectivePanelStyle === "bar"
             Layout.preferredWidth: compact.barWidth
-            Layout.preferredHeight: parent.height
+            Layout.preferredHeight: root.isVerticalLayout ? compact.barHeight : parent.height
             opacity: root.codexPanelOpacity
 
             Rectangle {
