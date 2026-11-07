@@ -107,11 +107,11 @@ Item {
             }
 
             Rectangle {
-                visible: root.hasTokenError || root.hasRateLimitError || root.hasNetworkError || root.serviceProblem || root.updateAvailable
+                visible: root.hasTokenError || root.rateLimitShown || root.hasNetworkError || root.serviceProblem || root.updateAvailable
                 width: Math.max(8, Math.round(compact.effectiveIconSize / 3))
                 height: width
                 radius: width / 2
-                color: (root.hasTokenError || root.hasRateLimitError || root.hasNetworkError || root.serviceProblem)
+                color: (root.hasTokenError || root.rateLimitShown || root.hasNetworkError || root.serviceProblem)
                     ? Kirigami.Theme.negativeTextColor
                     : "#D97757"
                 anchors.right: parent.right
@@ -123,7 +123,7 @@ Item {
 
         // Error state (non-token errors)
         PlasmaComponents.Label {
-            visible: root.showUsageStats && root.errorMsg !== "" && !root.hasTokenError && !root.hasRateLimitError
+            visible: root.showUsageStats && root.errorMsg !== "" && !root.hasTokenError && !root.rateLimitShown
             text: "⚠"
             font.pixelSize: Kirigami.Theme.defaultFont.pixelSize
             color: Kirigami.Theme.negativeTextColor
@@ -137,7 +137,7 @@ Item {
             Layout.preferredHeight: compact.dotSize
             radius: compact.dotSize / 2
             color: root.getUsageColor(root.sessionUsagePercent, root.useTimeAware ? root.sessionTimePct : undefined)
-            opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+            opacity: (root.hasTokenError || root.rateLimitShown) ? 0.5 : root.isStale ? 0.6 : 1.0
         }
 
         PlasmaComponents.Label {
@@ -146,13 +146,13 @@ Item {
             font.pixelSize: compact.textFontSize
             font.bold: true
             color: root.useTimeAware ? root.getUsageColor(root.sessionUsagePercent, root.sessionTimePct) : Kirigami.Theme.textColor
-            opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+            opacity: (root.hasTokenError || root.rateLimitShown) ? 0.5 : root.isStale ? 0.6 : 1.0
         }
 
         PlasmaComponents.Label {
             visible: root.showUsageStats && !root.isVerticalLayout && root.effectivePanelStyle === "text" && (Plasmoid.configuration.showSession !== false) && (Plasmoid.configuration.showWeekly !== false) && root.metricsVisible
             text: "|"
-            opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.25 : root.isStale ? 0.35 : 0.5
+            opacity: (root.hasTokenError || root.rateLimitShown) ? 0.25 : root.isStale ? 0.35 : 0.5
             font.pixelSize: compact.textFontSize
         }
 
@@ -162,7 +162,7 @@ Item {
             Layout.preferredHeight: compact.dotSize
             radius: compact.dotSize / 2
             color: root.getUsageColor(root.weeklyUsagePercent, root.useTimeAware ? root.weeklyTimePct : undefined)
-            opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+            opacity: (root.hasTokenError || root.rateLimitShown) ? 0.5 : root.isStale ? 0.6 : 1.0
         }
 
         PlasmaComponents.Label {
@@ -171,7 +171,7 @@ Item {
             font.pixelSize: compact.textFontSize
             font.bold: true
             color: root.useTimeAware ? root.getUsageColor(root.weeklyUsagePercent, root.weeklyTimePct) : Kirigami.Theme.textColor
-            opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+            opacity: (root.hasTokenError || root.rateLimitShown) ? 0.5 : root.isStale ? 0.6 : 1.0
         }
 
         Repeater {
@@ -183,14 +183,14 @@ Item {
                 PlasmaComponents.Label {
                     visible: !root.isVerticalLayout && ((Plasmoid.configuration.showSession !== false) || (Plasmoid.configuration.showWeekly !== false))
                     text: "|"
-                    opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.25 : root.isStale ? 0.35 : 0.5
+                    opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.25 : (root.isStale || root.modelLimitsStale) ? 0.35 : 0.5
                     font.pixelSize: compact.textFontSize
                 }
 
                 Rectangle {
                     width: compact.dotSize; height: compact.dotSize; radius: compact.dotSize / 2
                     color: root.getUsageColor(modelData.percent, root.useTimeAware ? root.weeklyTimePct : undefined)
-                    opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+                    opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : (root.isStale || root.modelLimitsStale) ? 0.6 : 1.0
                     anchors.verticalCenter: parent.verticalCenter
                 }
 
@@ -199,7 +199,7 @@ Item {
                     font.pixelSize: compact.textFontSize
                     font.bold: true
                     color: root.useTimeAware ? root.getUsageColor(modelData.percent, root.weeklyTimePct) : Kirigami.Theme.textColor
-                    opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+                    opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : (root.isStale || root.modelLimitsStale) ? 0.6 : 1.0
                 }
             }
         }
@@ -272,7 +272,7 @@ Item {
             visible: root.showUsageStats && root.effectivePanelStyle === "bar" && (Plasmoid.configuration.showSession !== false) && root.metricsVisible
             Layout.preferredWidth: compact.barWidth
             Layout.preferredHeight: root.isVerticalLayout ? compact.barHeight : parent.height
-            opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+            opacity: (root.hasTokenError || root.rateLimitShown) ? 0.5 : root.isStale ? 0.6 : 1.0
 
             Rectangle {
                 anchors.fill: parent
@@ -318,7 +318,7 @@ Item {
             visible: root.showUsageStats && root.effectivePanelStyle === "bar" && (Plasmoid.configuration.showWeekly !== false) && root.metricsVisible
             Layout.preferredWidth: compact.barWidth
             Layout.preferredHeight: root.isVerticalLayout ? compact.barHeight : parent.height
-            opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+            opacity: (root.hasTokenError || root.rateLimitShown) ? 0.5 : root.isStale ? 0.6 : 1.0
 
             Rectangle {
                 anchors.fill: parent
@@ -366,7 +366,7 @@ Item {
                 visible: root.showUsageStats && root.effectivePanelStyle === "bar" && root.isModelShownInPanel(modelData.label) && root.metricsVisible
                 Layout.preferredWidth: compact.barWidth
                 Layout.preferredHeight: root.isVerticalLayout ? compact.barHeight : parent.height
-                opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+                opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : (root.isStale || root.modelLimitsStale) ? 0.6 : 1.0
 
                 Rectangle {
                     anchors.fill: parent
@@ -517,7 +517,7 @@ Item {
             visible: root.showUsageStats && root.effectivePanelStyle === "ring" && (Plasmoid.configuration.showSession !== false) && root.metricsVisible
             Layout.preferredWidth: compact.ringSize
             Layout.preferredHeight: compact.ringSize
-            opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+            opacity: (root.hasTokenError || root.rateLimitShown) ? 0.5 : root.isStale ? 0.6 : 1.0
             percent: root.sessionUsagePercent
             ringColor: root.getUsageColor(root.sessionUsagePercent, root.useTimeAware ? root.sessionTimePct : undefined)
             markerRel: root.useTimeAware && root.sessionTimePct >= 0 ? root.sessionTimePct / 100 : -1
@@ -536,7 +536,7 @@ Item {
             visible: root.showUsageStats && root.effectivePanelStyle === "ring" && (Plasmoid.configuration.showWeekly !== false) && root.metricsVisible
             Layout.preferredWidth: compact.ringSize
             Layout.preferredHeight: compact.ringSize
-            opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+            opacity: (root.hasTokenError || root.rateLimitShown) ? 0.5 : root.isStale ? 0.6 : 1.0
             percent: root.weeklyUsagePercent
             ringColor: root.getUsageColor(root.weeklyUsagePercent, root.useTimeAware ? root.weeklyTimePct : undefined)
             markerRel: root.useTimeAware && root.weeklyTimePct >= 0 ? root.weeklyTimePct / 100 : -1
@@ -557,7 +557,7 @@ Item {
                 visible: root.showUsageStats && root.effectivePanelStyle === "ring" && root.isModelShownInPanel(modelData.label) && root.metricsVisible
                 Layout.preferredWidth: compact.ringSize
                 Layout.preferredHeight: compact.ringSize
-                opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : root.isStale ? 0.6 : 1.0
+                opacity: (root.hasTokenError || root.hasRateLimitError) ? 0.5 : (root.isStale || root.modelLimitsStale) ? 0.6 : 1.0
                 percent: modelData.percent
                 ringColor: root.getUsageColor(modelData.percent, root.useTimeAware ? root.weeklyTimePct : undefined)
                 markerRel: root.useTimeAware && root.weeklyTimePct >= 0 ? root.weeklyTimePct / 100 : -1
@@ -610,7 +610,7 @@ Item {
 
         // Error text (non-token errors only)
         PlasmaComponents.Label {
-            visible: root.showUsageStats && root.errorMsg !== "" && !root.hasTokenError && !root.hasRateLimitError
+            visible: root.showUsageStats && root.errorMsg !== "" && !root.hasTokenError && !root.rateLimitShown
             text: root.errorMsg
             font.pixelSize: Kirigami.Theme.smallFont.pixelSize
             color: Kirigami.Theme.negativeTextColor

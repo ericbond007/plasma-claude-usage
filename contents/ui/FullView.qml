@@ -36,7 +36,7 @@ Item {
         else duration = Math.floor(ago / 3600) + "h " + Math.floor((ago % 3600) / 60) + "m"
         var text = i18n.tr("Updated {duration} ago").replace("{duration}", duration)
         var nextPoll = root.lastFetchTime + Math.max(Plasmoid.configuration.refreshInterval || 5, 1) * 60000
-        if (ago >= 60 && nextPoll > full.footerNow && !root.hasRateLimitError) {
+        if (ago >= 60 && nextPoll > full.footerNow && !root.hasRateLimitError && !root.liveUsageFresh) {
             var untilMin = Math.ceil((nextPoll - full.footerNow) / 60000)
             text += " · " + i18n.tr("Next update in {duration}").replace("{duration}", untilMin + "m")
         }
@@ -661,7 +661,7 @@ Item {
 
                 // ===== Error cards =====
                 Rectangle {
-                    visible: root.errorMsg !== "" && !root.hasTokenError && !root.hasRateLimitError
+                    visible: root.errorMsg !== "" && !root.hasTokenError && !root.rateLimitShown
                     Layout.fillWidth: true
                     radius: Kirigami.Units.cornerRadius
                     color: Qt.alpha(Kirigami.Theme.negativeTextColor, 0.12)
@@ -737,7 +737,7 @@ Item {
                 }
 
                 Rectangle {
-                    visible: root.hasRateLimitError
+                    visible: root.rateLimitShown
                     Layout.fillWidth: true
                     radius: Kirigami.Units.cornerRadius
                     color: Qt.alpha(Kirigami.Theme.negativeTextColor, 0.12)

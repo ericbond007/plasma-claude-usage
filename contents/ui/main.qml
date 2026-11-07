@@ -5,6 +5,7 @@ import org.kde.plasma.components as PlasmaComponents
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.plasma5support as Plasma5Support
 import org.kde.plasma.core as PlasmaCore
+import "liveUsage.js" as LiveUsage
 
 PlasmoidItem {
     id: root
@@ -75,6 +76,21 @@ PlasmoidItem {
     readonly property int staleThresholdMs: root.hasRateLimitError && root.rateLimitRetryMs > 0
         ? root.rateLimitRetryMs + 60000
         : Math.max(Plasmoid.configuration.refreshInterval || 1, 1) * 60000 * 3
+
+    // Live usage from Claude Code (fork addition, see liveUsage.js): the 5h/7d numbers a
+    // statusline stores from Claude Code's own rate-limit headers, read every minute. While
+    // they are fresh the usage API is only asked for the extras, every detailsMs.
+    property double liveUsageTime: 0        // observation time of the last applied reading
+    property double lastApiSuccessTime: 0
+    property double lastLiveSaveTime: 0
+    readonly property int refreshMs: Math.max(Plasmoid.configuration.refreshInterval || 5, 1) * 60000
+    readonly property int liveFreshMs: 600000
+    readonly property int detailsMs: Math.max(900000, root.refreshMs)
+    readonly property bool liveUsageEnabled: !(Plasmoid.configuration.baseUrl || "").trim() && !root.standaloneCredsFile
+    readonly property bool liveUsageFresh: root.liveUsageEnabled && root.lastSuccessTime === root.liveUsageTime
+        && LiveUsage.liveIsFresh(root.liveUsageTime, root.nowTick, root.liveFreshMs)
+    readonly property bool rateLimitShown: LiveUsage.rateLimitShown(root.hasRateLimitError, root.liveUsageFresh)
+    readonly property bool modelLimitsStale: LiveUsage.modelLimitsStale(root.nowTick, root.lastApiSuccessTime, root.detailsMs, root.isStale)
 
     // v2.0: dynamic model breakdown, trend history, account email, update check
     property var modelUsage: []
@@ -373,6 +389,7 @@ PlasmoidItem {
         root.sessionResetTime = cache.sessionResetTs ? new Date(cache.sessionResetTs) : null
         root.weeklyResetTime = cache.weeklyResetTs ? new Date(cache.weeklyResetTs) : null
         root.lastSuccessTime = timestamp
+        root.lastApiSuccessTime = cache.apiTimestamp !== undefined ? cache.apiTimestamp : timestamp
         root.lastUpdate = Qt.formatTime(new Date(timestamp), "hh:mm:ss") + " *"
         root.isStale = age > root.staleThresholdMs
         console.log("Claude Usage: Loaded cache, age:", Math.round(age/60000), "min, stale:", root.isStale)
@@ -446,6 +463,7 @@ PlasmoidItem {
             extraEnabled: root.extraEnabled,
             extraUsed: root.extraUsedCents,
             extraLimit: root.extraLimitCents,
+            apiTimestamp: root.lastApiSuccessTime,
             codexSession: root.codexSessionUsagePercent,
             codexWeekly: root.codexWeeklyUsagePercent,
             codexHasSession: root.codexHasSessionData,
@@ -495,9 +513,141 @@ PlasmoidItem {
         repeat: true
         onTriggered: {
             if (root.lastSuccessTime > 0) {
-                root.isStale = (Date.now() - root.lastSuccessTime) > root.staleThresholdMs
+                root.isStale = (Date.now() - root.lastSuccessTime) > root.staleAfterMs()
+                rollOverPassedWindows()
             }
         }
+    }
+
+    // Live usage reader (fork addition): one constant command, re-run every minute
+    Plasma5Support.DataSource {
+        id: liveUsageReader
+        engine: "executable"
+        interval: 60000
+        connectedSources: root.liveUsageEnabled ? [root.readLiveUsageCmd()] : []
+
+        onNewData: function(sourceName, data) {
+            // A read started before a credentials-path change belongs to the old account
+            if (sourceName !== root.readLiveUsageCmd()) return
+            var reading = LiveUsage.parseLiveUsage(data["stdout"] || "", Date.now())
+            // Applied after this delivery returns, like the token watcher (2.5.4)
+            Qt.callLater(function() {
+                if (root.liveUsageEnabled && sourceName === root.readLiveUsageCmd()) root.applyLiveUsage(reading)
+            })
+        }
+    }
+
+    function readLiveUsageCmd() {
+        return "cat -- " + claudeDirExpr() + "/cache/usage-cache.json 2>/dev/null"
+    }
+
+    // Session and weekly values and reset times, from LiveUsage.resolveBucket results
+    function applyWindows(session, weekly) {
+        root.sessionUsagePercent = session.percent
+        root.sessionResetTime = session.resetMs !== null ? new Date(session.resetMs) : null
+        root.sessionReset = root.sessionResetTime ? Qt.formatTime(root.sessionResetTime, "hh:mm") : ""
+        root.weeklyUsagePercent = weekly.percent
+        root.weeklyResetTime = weekly.resetMs !== null ? new Date(weekly.resetMs) : null
+        root.weeklyReset = root.weeklyResetTime ? Qt.formatDateTime(root.weeklyResetTime, "MMM d, hh:mm") : ""
+    }
+
+    // Trend history: one sample per 15 minutes, kept for 7 days
+    function recordUsageSample(t) {
+        var samples = root.usageSamples.slice()
+        if (samples.length === 0 || t - samples[samples.length - 1].t >= 900000) {
+            samples.push({ t: t, session: root.sessionUsagePercent, weekly: root.weeklyUsagePercent })
+        }
+        var nowTs = Date.now()
+        root.usageSamples = samples.filter(function(s) { return nowTs - s.t < 604800000 })
+    }
+
+    function applyLiveUsage(u) {
+        if (!u) return
+        var now = Date.now()
+        // After a restart the cache already shows this reading (its timestamp is the reading's
+        // observation time): nothing to apply, but it is live data again
+        if (u.observedAt === root.lastSuccessTime && u.observedAt > root.liveUsageTime) {
+            root.liveUsageTime = u.observedAt
+            root.lastUpdate = Qt.formatTime(new Date(u.observedAt), "hh:mm:ss")
+            root.isStale = now - u.observedAt > root.staleAfterMs()
+            if (LiveUsage.liveIsFresh(u.observedAt, now, root.liveFreshMs)) {
+                root.hasNetworkError = false
+                root.errorMsg = ""
+            }
+            root.nowTick = now
+            rollOverPassedWindows()
+            return
+        }
+        if (!LiveUsage.shouldApplyLive(u.observedAt, root.lastSuccessTime)) return
+        var oldSession = root.sessionUsagePercent, oldWeekly = root.weeklyUsagePercent
+        var oldSessionReset = root.sessionResetTime ? root.sessionResetTime.getTime() : null
+        var oldWeeklyReset = root.weeklyResetTime ? root.weeklyResetTime.getTime() : null
+        var session = LiveUsage.resolveBucket(u.session, u.sessionResetMs, oldSession, oldSessionReset, now)
+        var weekly = LiveUsage.resolveBucket(u.weekly, u.weeklyResetMs, oldWeekly, oldWeeklyReset, now)
+        var changed = session.percent !== oldSession || weekly.percent !== oldWeekly
+            || session.resetMs !== oldSessionReset || weekly.resetMs !== oldWeeklyReset
+
+        root.liveUsageTime = u.observedAt
+        applyWindows(session, weekly)
+        root.lastSuccessTime = u.observedAt
+        root.lastUpdate = Qt.formatTime(new Date(u.observedAt), "hh:mm:ss")
+        root.isStale = now - u.observedAt > root.staleAfterMs()
+        if (LiveUsage.liveIsFresh(u.observedAt, now, root.liveFreshMs)) {
+            root.hasNetworkError = false
+            root.errorMsg = ""
+        }
+        root.nowTick = now
+        recordUsageSample(u.observedAt)
+        checkAlerts()
+        if (changed || now - root.lastLiveSaveTime >= 300000) {
+            saveCache()
+            root.lastLiveSaveTime = now
+        }
+        if (changed)
+            console.log("Claude Usage: Live usage from Claude Code - session:", session.percent,
+                        "weekly:", weekly.percent, "(age", Math.round((now - u.observedAt) / 1000) + "s)")
+    }
+
+    // Live numbers fresh at `now` (fork addition); off with a custom base URL or standalone file
+    function liveFreshAt(now) {
+        return root.liveUsageEnabled && root.lastSuccessTime === root.liveUsageTime
+            && LiveUsage.liveIsFresh(root.liveUsageTime, now, root.liveFreshMs)
+    }
+
+    // A window whose reset passes while a live reading is shown: no newer reading may come
+    // for a while (Claude Code idle), so roll it over now, as a newer reading would
+    function rollOverPassedWindows() {
+        if (!(root.liveUsageTime > 0 && root.lastSuccessTime === root.liveUsageTime)) return
+        var now = Date.now()
+        var sessionReset = root.sessionResetTime ? root.sessionResetTime.getTime() : null
+        var weeklyReset = root.weeklyResetTime ? root.weeklyResetTime.getTime() : null
+        var session = LiveUsage.resolveBucket(root.sessionUsagePercent, sessionReset, root.sessionUsagePercent, sessionReset, now)
+        var weekly = LiveUsage.resolveBucket(root.weeklyUsagePercent, weeklyReset, root.weeklyUsagePercent, weeklyReset, now)
+        if (session.percent === root.sessionUsagePercent && session.resetMs === sessionReset
+                && weekly.percent === root.weeklyUsagePercent && weekly.resetMs === weeklyReset) return
+        applyWindows(session, weekly)
+        checkAlerts()
+        saveCache()
+        console.log("Claude Usage: Window reset passed - session:", session.percent, "weekly:", weekly.percent)
+    }
+
+    // Shown data counts as stale after this long. Live numbers are trusted for liveFreshMs, so
+    // they never dim before that, whatever the refresh interval or a retry-after says.
+    function staleAfterMs() {
+        return root.liveUsageTime > 0 && root.lastSuccessTime === root.liveUsageTime
+            ? Math.max(root.staleThresholdMs, root.liveFreshMs) : root.staleThresholdMs
+    }
+
+    // Refresh tick (fork addition): with fresh live numbers the API is only asked when the
+    // extras are due
+    function pollUsage() {
+        var now = Date.now()
+        if (!LiveUsage.apiNeeded(now, root.liveFreshAt(now),
+                                 root.lastApiSuccessTime, root.detailsMs)) {
+            console.log("Claude Usage: Live usage fresh, API not due")
+            return
+        }
+        loadCredentials()
     }
 
     // Token watcher
@@ -603,10 +753,17 @@ PlasmoidItem {
             root.accountTier = ""
             root.credentialsRetryCount = 0
             root.lastSuccessTime = 0
+            root.liveUsageTime = 0
+            root.lastApiSuccessTime = 0
+            root.lastLiveSaveTime = 0
             root.alertedThresholds = ({})
             root.planName = ""
             root.sessionUsagePercent = 0
             root.weeklyUsagePercent = 0
+            root.sessionResetTime = null
+            root.weeklyResetTime = null
+            root.sessionReset = ""
+            root.weeklyReset = ""
             root.modelUsage = []
             root.modelLimits = []
             root.usageSamples = []
@@ -1086,9 +1243,19 @@ PlasmoidItem {
 
                 var fiveHour = data.five_hour || {}
                 var sevenDay = data.seven_day || {}
-
-                root.sessionUsagePercent = fiveHour.utilization || 0
-                root.weeklyUsagePercent = sevenDay.utilization || 0
+                // While fresh live numbers from Claude Code are shown, the API only supplies
+                // the extras (fork addition)
+                var liveFresh = root.liveFreshAt(Date.now())
+                if (!liveFresh) {
+                    var nowMs = Date.now()
+                    applyWindows(
+                        LiveUsage.resolveBucket(typeof fiveHour.utilization === "number" ? fiveHour.utilization : null,
+                            fiveHour.resets_at ? new Date(fiveHour.resets_at).getTime() : null, root.sessionUsagePercent,
+                            root.sessionResetTime ? root.sessionResetTime.getTime() : null, nowMs),
+                        LiveUsage.resolveBucket(typeof sevenDay.utilization === "number" ? sevenDay.utilization : null,
+                            sevenDay.resets_at ? new Date(sevenDay.resets_at).getTime() : null, root.weeklyUsagePercent,
+                            root.weeklyResetTime ? root.weeklyResetTime.getTime() : null, nowMs))
+                }
 
                 // Model breakdown from limits array (newer API)
                 var limits = []
@@ -1135,18 +1302,12 @@ PlasmoidItem {
                 root.extraUsedCents = extra.used_credits || 0
                 root.extraLimitCents = extra.monthly_limit || 0
 
-                if (fiveHour.resets_at) {
-                    root.sessionResetTime = new Date(fiveHour.resets_at)
-                    root.sessionReset = Qt.formatTime(root.sessionResetTime, "hh:mm")
+                root.lastApiSuccessTime = Date.now()
+                if (!liveFresh) {
+                    root.lastUpdate = Qt.formatTime(new Date(), "hh:mm:ss")
+                    root.lastSuccessTime = Date.now()
+                    root.isStale = false
                 }
-                if (sevenDay.resets_at) {
-                    root.weeklyResetTime = new Date(sevenDay.resets_at)
-                    root.weeklyReset = Qt.formatDateTime(root.weeklyResetTime, "MMM d, hh:mm")
-                }
-
-                root.lastUpdate = Qt.formatTime(new Date(), "hh:mm:ss")
-                root.lastSuccessTime = Date.now()
-                root.isStale = false
                 root.errorMsg = ""
                 root.hasTokenError = false
                 root.hasRateLimitError = false
@@ -1155,22 +1316,18 @@ PlasmoidItem {
                 root.rateLimitRetryMs = 0
                 root.autoRefreshAttempted = false
 
-                // Trend history
-                var samples = root.usageSamples.slice()
-                var nowTs = Date.now()
-                if (samples.length === 0 || nowTs - samples[samples.length - 1].t >= 900000) {
-                    samples.push({ t: nowTs, session: root.sessionUsagePercent, weekly: root.weeklyUsagePercent })
-                }
-                root.usageSamples = samples.filter(function(s) { return nowTs - s.t < 604800000 })
+                // Trend history (the live path records its own samples)
+                if (!liveFresh) recordUsageSample(Date.now())
 
                 root.nowTick = Date.now()
                 checkAlerts()
                 saveCache()
 
-                console.log("Claude Usage: API success - session:", root.sessionUsagePercent, "weekly:", root.weeklyUsagePercent)
+                console.log("Claude Usage: API success - session:", root.sessionUsagePercent, "weekly:", root.weeklyUsagePercent,
+                            liveFresh ? "(live numbers kept, extras updated)" : "")
             } catch (e) {
                 console.log("Claude Usage: JSON parse error:", e)
-                root.errorMsg = "Parse error"
+                if (!root.liveUsageFresh) root.errorMsg = "Parse error"
             }
         } else if (status === 401) {
             root.hasNetworkError = false
@@ -1195,7 +1352,7 @@ PlasmoidItem {
             root.errorMsg = ""
         } else if (status === 404) {
             root.hasNetworkError = false
-            root.errorMsg = root.baseUrl
+            if (!root.liveUsageFresh) root.errorMsg = root.baseUrl
                 ? i18n.tr("Endpoint not found")
                 : i18n.tr("API error") + " (404)"
             console.log("Claude Usage: 404 Not Found")
@@ -1211,11 +1368,12 @@ PlasmoidItem {
             root.errorMsg = ""
         } else if (status === 0) {
             console.log("Claude Usage: Network error, keeping cached data")
-            root.hasNetworkError = true
+            // Fresh live numbers keep coming without the API (fork addition)
+            if (!root.liveUsageFresh) root.hasNetworkError = true
             root.errorMsg = ""
             root.lastFetchTime = 0
         } else {
-            root.errorMsg = i18n.tr("API error") + " (" + status + ")"
+            if (!root.liveUsageFresh) root.errorMsg = i18n.tr("API error") + " (" + status + ")"
             console.log("Claude Usage: API error:", status)
         }
     }
@@ -1819,7 +1977,7 @@ PlasmoidItem {
 
                     // Error message
                     Rectangle {
-                        visible: root.errorMsg !== "" && !root.hasTokenError && !root.hasRateLimitError
+                        visible: root.errorMsg !== "" && !root.hasTokenError && !root.rateLimitShown
                         Layout.fillWidth: true
                         Layout.preferredHeight: classicErrorCol.implicitHeight + Kirigami.Units.largeSpacing
                         radius: 5
@@ -1896,7 +2054,7 @@ PlasmoidItem {
 
                     // Rate limit error
                     Rectangle {
-                        visible: root.hasRateLimitError
+                        visible: root.rateLimitShown
                         Layout.fillWidth: true
                         Layout.preferredHeight: classicRateLimitCol.implicitHeight + Kirigami.Units.largeSpacing
                         radius: 5
@@ -2078,7 +2236,7 @@ PlasmoidItem {
         interval: Math.max(Plasmoid.configuration.refreshInterval || 5, 1) * 60000
         running: !root.hasRateLimitError
         repeat: true
-        onTriggered: loadCredentials()
+        onTriggered: pollUsage()
     }
 
     function elapsedPct(resetTime, periodMs) {

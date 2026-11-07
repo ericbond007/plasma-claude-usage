@@ -6,12 +6,13 @@ A KDE Plasma 6 widget that displays your Claude Code usage statistics in the tas
 
 ## This fork: Codex support
 
-This is [izll/plasma-claude-usage](https://github.com/izll/plasma-claude-usage) v2.5.2 plus **OpenAI Codex usage** in the same widget:
+This is [izll/plasma-claude-usage](https://github.com/izll/plasma-claude-usage) v2.6.1 plus **OpenAI Codex usage** in the same widget, and **live usage from Claude Code** (below):
 
 - Codex rate-limit windows (5-hour session + weekly on paid plans; a single 30-day window on the free plan), plan and reset times, labelled from the window length Codex reports, read live from the local Codex CLI (`contents/scripts/codex-usage.sh` runs `codex app-server --stdio` and asks `account/rateLimits/read`; no credentials pass through the widget).
 - Panel: Codex metrics follow the chosen style (ring / text / bar) after the Claude ones, marked with a circled "O"; a red dot means the last Codex read failed.
 - Popup: a **Codex** card in both the card and classic layouts, movable/hideable like the other cards.
 - Settings → **General → Codex**: turn Codex on/off and pick which Codex metrics show in the panel. Codex is independent of the Claude-process visibility option.
+- **Live usage from Claude Code**: the session and weekly numbers can come from Claude Code itself, through a statusline that stores them, instead of the rate-limited usage API — see [Live usage from Claude Code](#live-usage-from-claude-code-fork).
 - Upgrading from the fork's v1.x: the old "Show Fable weekly usage in panel" option is migrated once into upstream's per-model panel list (upstream now shows Fable and other per-model weekly limits itself).
 
 ## Features
@@ -113,6 +114,27 @@ If you use a custom API proxy or gateway, the widget can skip the credentials fi
 
 When a base URL is configured, the widget authenticates with `x-api-key` instead of the OAuth token. Leave the Base URL field empty to go back to the default credentials file method.
 
+### Live usage from Claude Code (fork)
+
+The usage API allows only a few requests per access token every few minutes, and every Claude Code session on the machine shares that token, so the widget can lose the race and sit in "Rate limited". Claude Code itself already knows the session and weekly numbers: it reads them from the rate-limit headers of its own API responses and hands them to its [statusline](https://code.claude.com/docs/en/statusline) on stdin as `rate_limits`.
+
+A statusline that stores them lets the widget show them without the API. The widget reads `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/usage-cache.json` once a minute:
+
+```json
+{
+  "timestamp": 1794074669000,
+  "data": {
+    "fiveHour": { "percentage": 12.5, "resetsAt": "2026-11-07T20:00:00.000Z" },
+    "weekly":   { "percentage": 93.4, "resetsAt": "2026-11-11T06:00:00.000Z" }
+  }
+}
+```
+
+- `timestamp` is when the reading was **observed** (ms), not when the file was written: Claude Code also re-renders idle sessions, with readings that can be hours old. Claude Code's stdin carries `prompt_cache.expires_at` (seconds) and `prompt_cache.ttl` (`"5m"` / `"1h"`); `expires_at − ttl` is the send time of the session's last request. Only replace the file with a newer observation, and write it atomically (temp file + rename).
+- Either window may be `null` (the account may have no 5-hour window), not both.
+
+While a reading is at most 10 minutes old, the widget shows it, does not dim the panel for a usage-API rate limit, and asks the API only every 15 minutes (or the refresh interval, if longer) for what the reading lacks: per-model limits and extra usage. Without a fresh reading — no Claude Code session active, no such statusline — it polls the API as before. The reader is off with a custom base URL or a standalone credentials file.
+
 ## How It Works
 
 The widget calls the Anthropic usage API directly from QML. No data is stored or sent anywhere else.
@@ -151,7 +173,7 @@ The API allows ~4 requests per 5-minute window. The widget handles this automati
 - Falls back to exponential backoff (5/10/15 min)
 - Monitors for token refresh and recovers instantly
 
-To avoid rate limiting, keep the refresh interval at 5 minutes or higher.
+To avoid rate limiting, keep the refresh interval at 5 minutes or higher. Every Claude Code session and tool on the machine that asks the same API counts against the same limit; a statusline that calls it on every render can use it up on its own. [Live usage from Claude Code](#live-usage-from-claude-code-fork) keeps the panel current regardless.
 
 ### "Invalid API key" error
 
@@ -185,6 +207,7 @@ claude-usage-widget/
 │   │   ├── FullView.qml       # Card popup with drag & drop
 │   │   ├── UsageRing.qml      # Anti-aliased progress ring component
 │   │   ├── CacheStore.qml     # Usage cache in LocalStorage (SQLite)
+│   │   ├── liveUsage.js       # Live usage from Claude Code: parsing and rules (fork)
 │   │   ├── ServiceStatusCard.qml # status.claude.com problem card
 │   │   ├── ModelRow.qml       # Model breakdown row component
 │   │   ├── TrendChart.qml     # 7-day trend chart component
@@ -196,6 +219,7 @@ claude-usage-widget/
 │   └── icons/
 │       ├── claude.svg         # Claude logo (orange)
 │       └── claude-tile.svg    # Claude tile icon
+├── tests/                     # node --test tests/*.test.js (fork)
 └── screenshots/               # Preview images
 ```
 

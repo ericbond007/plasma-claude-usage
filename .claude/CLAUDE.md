@@ -105,11 +105,13 @@ To publish to KDE Store:
 
 ## Fork: Codex support (ericbond007, 2026-10-07)
 
-This branch is upstream v2.6.1 plus Codex. Everything Codex-related is marked "fork addition" in comments:
+This branch is upstream v2.6.1 plus Codex and live usage from Claude Code. Everything Codex-related is marked "fork addition" in comments:
 
 - `contents/scripts/codex-usage.sh` — starts `codex app-server --stdio`, sends `initialize` then `account/rateLimits/read` (JSON-RPC over stdio), prints the `id:2` response. `result.rateLimits.primary/secondary` carry `usedPercent`, `windowDurationMins`, `resetsAt` (epoch seconds); `planType` is the plan.
 - `main.qml` — `codex*` properties, `codexReader`, `fetchCodexUsage()`, its own `codexRefreshTimer` (Claude's `refreshTimer` pauses on Claude rate limits), cache fields (Codex has its own `codexTimestamp` in the LocalStorage row and `codexCacheTime` in the config fallback), tooltip, classic `classicCodexComp`, `withMissingCards()`, `migrateLegacyConfig()`.
 - `CompactView.qml` / `CodexBadge.qml` — panel metrics for text/bar/ring; `FullView.qml` — `cardCodexComp`.
+- Live usage from Claude Code (2.6.1.2) — `contents/ui/liveUsage.js` holds the pure rules (parse the statusline's `cache/usage-cache.json`, freshness, when the API is due, missing-window handling); `main.qml` has `liveUsageReader` (constant `cat`, every 60 s), `applyLiveUsage()`, `pollUsage()` (refresh tick), and `rateLimitShown` / `modelLimitsStale` for the UI. While a reading is fresh (10 min) `handleUsageResponse` keeps the live session/weekly numbers and only takes the extras. The file contract is in the README; the writer is Dave's `~/.claude/hooks/statusline.js` (working copy and tests in `~/projects/claudePlasma/statusline/`). `timestamp` is the observation time, never the write time.
+- Tests: `node --test tests/*.test.js` (liveUsage.js is loaded with node's `vm`, so it may only contain top-level function declarations — no `.pragma`, `.import` or QML API). AGENTS.md's "no automated test suite" is upstream's statement.
 - Fable: upstream's generic `limits[]` handling (`modelLimits`, `showModelLimits`) covers it; do not re-add a dedicated tracker.
 
 Lint with the **Qt 6** linter: `/usr/lib/qt6/bin/qmllint` (`/usr/bin/qmllint` is Qt 5 and reports nothing useful). It exits 0 even with warnings — compare its output against the upstream baseline (all `[unqualified]` from `root.` access in child files).

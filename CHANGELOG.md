@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1.2] - 2026-11-07 (Codex fork)
+
+### Added
+
+- **Live usage from Claude Code**: the session and weekly numbers can come from `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/usage-cache.json`, written by a statusline from the `rate_limits` Claude Code hands it (README, "Live usage from Claude Code"). While a reading is at most 10 minutes old the widget shows it, does not dim for a usage-API rate limit, and asks the API only every 15 minutes for per-model limits and extra usage. Since 2026-11-04 the usage API answers 429 most of the time while Claude Code sessions are active; this keeps the panel current through it
+- Unit tests for the new rules: `node --test tests/*.test.js`
+
+### Fixed
+
+- A window missing from a response no longer reads as 0% while its reset is still ahead (no false "Quota reset" notification), and a reset time that has passed is cleared instead of kept (the session reset showed Nov 4 for days after the API stopped reporting a 5-hour window)
+
 ## [2.6.1.1] - 2026-11-07 (Codex fork)
 
 ### Fixed
