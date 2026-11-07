@@ -284,13 +284,34 @@ PlasmoidItem {
         }
     }
 
-    // Cache. It lives in a hidden config entry, so saving it runs no process.
-    // It used to be written with `echo '<json>' > file`: every save was a new
-    // executable source named after the whole JSON (12-20 KB with the trend
-    // samples), and plasma5support keeps every source name it has seen as a
-    // property of each DataSource in plasmashell, which grew by megabytes per
-    // save. The old file is still read once, to carry its data over.
+    // Cache. Saving it must not run a process: it used to be written with
+    // `echo '<json>' > file`, so every save was a new executable source named
+    // after the whole JSON (12-20 KB with the trend samples), and
+    // plasma5support keeps every source name it has seen as a property of each
+    // DataSource in plasmashell, which grew by megabytes per save.
+    //
+    // It lives in LocalStorage (SQLite), shared by the instances that show the
+    // same account (the key follows the old per-instance file rule). Without
+    // the LocalStorage module it falls back to a hidden config entry, which
+    // 2.5.2 used. The old cache file is still read once, to carry it over.
+    Loader {
+        id: cacheStoreLoader
+        source: "CacheStore.qml"
+        onLoaded: item.dbName = "ClaudeUsageWidget"
+    }
+    readonly property var cacheStore: cacheStoreLoader.status === Loader.Ready ? cacheStoreLoader.item : null
+    readonly property string cacheKey: root.configuredClaudePath ? "cache-" + Plasmoid.id : "cache"
     property string lastSavedCache: ""
+
+    // The config copy is only needed without LocalStorage
+    function dropConfigCache() {
+        if ((Plasmoid.configuration.usageCache || "") !== "" || (Plasmoid.configuration.usageCacheTime || "") !== ""
+                || (Plasmoid.configuration.codexCacheTime || "") !== "") {
+            Plasmoid.configuration.usageCache = ""
+            Plasmoid.configuration.usageCacheTime = ""
+            Plasmoid.configuration.codexCacheTime = ""
+        }
+    }
 
     // Claude and Codex each have their own timestamp (0 = never fetched), so a
     // Codex-only save never revives stale Claude numbers after a restart and
@@ -358,6 +379,20 @@ PlasmoidItem {
     }
 
     function loadCache() {
+        if (root.cacheStore) {
+            var json = root.cacheStore.read(root.cacheKey)
+            if (json.length > 10) {
+                try {
+                    var cache = JSON.parse(json)
+                    applyCache(cache, cache.timestamp, cache.codexTimestamp)
+                    dropConfigCache()
+                    return
+                } catch (e) {
+                    console.log("Claude Usage: Cache parse error:", e)
+                }
+            }
+        }
+        // No LocalStorage row yet: the config entry of 2.5.2, else the old file
         var stored = Plasmoid.configuration.usageCache || ""
         if (stored.length > 10) {
             try {
@@ -421,23 +456,35 @@ PlasmoidItem {
             codexSessionWindowMs: root.codexSessionWindowMs,
             codexWeeklyWindowMs: root.codexWeeklyWindowMs
         }
-        var json = JSON.stringify(cache)
-        if (json !== root.lastSavedCache) {
-            Plasmoid.configuration.usageCache = json
-            root.lastSavedCache = json
-        }
-        // The ages decide whether the cached values are shown after a restart.
-        // Each is its side's last success (0 = never), not the save time: a
-        // Codex-triggered save must not make unfetched or stale Claude numbers
-        // look current, and vice versa.
-        Plasmoid.configuration.usageCacheTime = String(root.lastSuccessTime)
-        Plasmoid.configuration.codexCacheTime = String(root.codexLastSuccessTime)
-
         // Model names for the settings page
         var known = (root.modelLimits || []).map(function(m) { return m.label || "" })
             .filter(function(n) { return n !== "" }).join(",")
         if (known !== "" && known !== Plasmoid.configuration.knownModels)
             Plasmoid.configuration.knownModels = known
+
+        // The ages decide whether the cached values are shown after a restart.
+        // Each is its side's last success (0 = never), not the save time: a
+        // Codex-triggered save must not make unfetched or stale Claude numbers
+        // look current, and vice versa (fork addition).
+        if (root.cacheStore) {
+            cache.timestamp = root.lastSuccessTime
+            cache.codexTimestamp = root.codexLastSuccessTime
+            if (root.cacheStore.write(root.cacheKey, JSON.stringify(cache))) {
+                dropConfigCache()
+                return
+            }
+            delete cache.timestamp
+            delete cache.codexTimestamp
+        }
+        // Without LocalStorage: the config entry, written only when the data
+        // changes, its timestamps separately
+        var json = JSON.stringify(cache)
+        if (json !== root.lastSavedCache) {
+            Plasmoid.configuration.usageCache = json
+            root.lastSavedCache = json
+        }
+        Plasmoid.configuration.usageCacheTime = String(root.lastSuccessTime)
+        Plasmoid.configuration.codexCacheTime = String(root.codexLastSuccessTime)
     }
 
     // Stale checker
@@ -470,11 +517,17 @@ PlasmoidItem {
                     var newToken = (creds.claudeAiOauth || {}).accessToken || ""
                     if (newToken && newToken !== root.accessToken) {
                         console.log("Claude Usage: New token detected! Resetting rate limit state.")
-                        root.accessToken = newToken
-                        root.hasRateLimitError = false
-                        root.rateLimitRetryCount = 0
-                        root.lastFetchTime = 0
-                        fetchUsageFromApi(true)
+                        // Clearing hasRateLimitError disconnects this source, and
+                        // plasma5support deletes the relay that is delivering this
+                        // data. The relay writes to itself once this handler
+                        // returns, so the reset waits until then.
+                        Qt.callLater(function() {
+                            root.accessToken = newToken
+                            root.hasRateLimitError = false
+                            root.rateLimitRetryCount = 0
+                            root.lastFetchTime = 0
+                            fetchUsageFromApi(true)
+                        })
                     }
                 } catch (e) {
                     console.log("Claude Usage: Token watcher parse error:", e)
@@ -559,9 +612,11 @@ PlasmoidItem {
             root.usageSamples = []
             root.tokenStats = []
             updatePlanName()
-            Plasmoid.configuration.usageCache = ""
-            Plasmoid.configuration.usageCacheTime = ""
+            // An instance with its own account keeps its own row; whatever it
+            // holds belongs to the previous account.
+            dropConfigCache()
             root.lastSavedCache = ""
+            if (root.cacheStore && root.configuredClaudePath) root.cacheStore.remove(root.cacheKey)
             loadCache()
 
             refresh()
@@ -582,6 +637,19 @@ PlasmoidItem {
         if (p === "~") return "\"$HOME\""
         if (p.indexOf("~/") === 0) return "\"$HOME\"" + quoted(p.substring(1))
         return quoted(p)
+    }
+
+    // The "Proxy" setting, for the widget's own requests (usage, service
+    // status, update checks). The command text only changes with the
+    // setting, so it stays a constant executable source.
+    readonly property string proxyUrl: (Plasmoid.configuration.proxyUrl || "").trim()
+
+    function shQuote(s) {
+        return "'" + String(s).replace(/'/g, "'\\''") + "'"
+    }
+
+    function curlProxyArg() {
+        return root.proxyUrl ? " --proxy " + shQuote(root.proxyUrl) : ""
     }
 
     function credentialsFileExpr() {
@@ -987,7 +1055,8 @@ PlasmoidItem {
 
         if (!root.baseUrl) {
             var script = Qt.resolvedUrl("../scripts/fetch_usage.sh").toString().replace("file://", "")
-            usageFetcher.connectSource("sh '" + script + "' " + credentialsFileExpr())
+            var proxyEnv = root.proxyUrl ? "env CLAUDE_USAGE_PROXY=" + shQuote(root.proxyUrl) + " " : ""
+            usageFetcher.connectSource(proxyEnv + "sh '" + script + "' " + credentialsFileExpr())
             return
         }
 
@@ -1043,7 +1112,9 @@ PlasmoidItem {
                 for (var key in data) {
                     var m = key.match(/^seven_day_(.+)$/)
                     if (m && nonModelKeys.indexOf(m[1]) !== -1) continue
-                    if (m && data[key] && typeof data[key] === "object") {
+                    // Only real limits carry a numeric utilization; e.g.
+                    // seven_day_breakdown is a per-surface summary object.
+                    if (m && data[key] && typeof data[key].utilization === "number") {
                         models.push({
                             key: m[1],
                             name: modelDisplayName(m[1]),
@@ -1851,6 +1922,10 @@ PlasmoidItem {
                         }
                     }
 
+                    ServiceStatusCard {
+                        classic: true
+                    }
+
                     Rectangle {
                         Layout.fillWidth: true
                         height: 1
@@ -2136,6 +2211,85 @@ PlasmoidItem {
         return key === "fable" ? "#D97757" : getUsageColor(percent)
     }
 
+    // ===== Service status =====
+    // status.claude.com, read for the two components this widget's users
+    // depend on. The page headline covers every component, so a Cowork
+    // incident would show as a warning here while Claude Code and the API work.
+    readonly property var watchedComponents: ["Claude Code", "Claude API (api.anthropic.com)"]
+    property var serviceIssues: []
+    property string serviceIncident: ""
+    property double serviceCheckedAt: 0
+    // A state nobody has confirmed for a while is dropped instead of shown.
+    readonly property int serviceMaxAgeMs: Math.max(1800000, Math.max(Plasmoid.configuration.refreshInterval || 5, 1) * 180000)
+    readonly property bool serviceProblem: Plasmoid.configuration.enableStatusCheck !== false
+        && root.serviceIssues.length > 0
+        && root.nowTick - root.serviceCheckedAt <= root.serviceMaxAgeMs
+    readonly property bool serviceOutage: root.serviceProblem && root.serviceIssues.some(function(c) {
+        return c.status === "partial_outage" || c.status === "major_outage"
+    })
+
+    Plasma5Support.DataSource {
+        id: serviceStatusChecker
+        engine: "executable"
+        interval: Math.max(Plasmoid.configuration.refreshInterval || 5, 1) * 60000
+        connectedSources: Plasmoid.configuration.enableStatusCheck !== false
+            ? ["curl -sS" + curlProxyArg() + " --max-time 10 https://status.claude.com/api/v2/summary.json 2>/dev/null"] : []
+
+        // Only the service* properties change here. Nothing connectedSources
+        // depends on may change inside the handler (see tokenWatcher).
+        onNewData: function(sourceName, data) {
+            var stdout = (data["stdout"] || "").trim()
+            if (stdout === "") return
+            try {
+                root.applyServiceStatus(JSON.parse(stdout))
+            } catch (e) {
+                console.log("Claude Usage: service status parse error:", e)
+            }
+        }
+    }
+
+    // Maintenance is planned and announced in advance, so it is not shown.
+    // Every other status except "operational" is a problem, including values
+    // Statuspage adds later.
+    function applyServiceStatus(summary) {
+        var components = summary && Array.isArray(summary.components) ? summary.components : null
+        if (!components) return
+        var issues = []
+        var affected = []
+        for (var i = 0; i < components.length; i++) {
+            var c = components[i] || {}
+            if (root.watchedComponents.indexOf(c.name) >= 0
+                    && c.status !== "operational" && c.status !== "under_maintenance") {
+                affected.push(c.name)
+                // "Claude API (api.anthropic.com)" is shown as "Claude API".
+                issues.push({ name: String(c.name).replace(/\s*\(.*\)$/, ""), status: String(c.status) })
+            }
+        }
+        // The title of the first incident that names an affected component.
+        var incidents = Array.isArray(summary.incidents) ? summary.incidents : []
+        var incident = ""
+        for (var j = 0; j < incidents.length && affected.length > 0 && incident === ""; j++) {
+            var parts = (incidents[j] || {}).components
+            if (!Array.isArray(parts)) continue
+            for (var k = 0; k < parts.length; k++) {
+                if (affected.indexOf((parts[k] || {}).name) >= 0) {
+                    incident = String(incidents[j].name || "")
+                    break
+                }
+            }
+        }
+        root.serviceIssues = issues
+        root.serviceIncident = incident
+        root.serviceCheckedAt = Date.now()
+    }
+
+    function serviceStatusText(status) {
+        if (status === "degraded_performance") return i18n.tr("Degraded performance")
+        if (status === "partial_outage") return i18n.tr("Partial outage")
+        if (status === "major_outage") return i18n.tr("Major outage")
+        return i18n.tr("Service disruption")
+    }
+
     // ===== Widget update check =====
     // Asks the KDE Store (the same data Discover uses) for this widget's latest
     // version once a day. Only a low-key label in the popup footer shows it.
@@ -2171,7 +2325,7 @@ PlasmoidItem {
         interval: 120000   // first check shortly after login, then daily
         running: Plasmoid.configuration.checkWidgetUpdates !== false
         repeat: true
-        onTriggered: widgetUpdateChecker.connectSource("curl -sS --max-time 10 https://api.kde-look.org/ocs/v1/content/data/" + root.storeProductId + " 2>/dev/null")
+        onTriggered: widgetUpdateChecker.connectSource("curl -sS" + curlProxyArg() + " --max-time 10 https://api.kde-look.org/ocs/v1/content/data/" + root.storeProductId + " 2>/dev/null")
     }
 
     Plasma5Support.DataSource {
@@ -2231,7 +2385,7 @@ PlasmoidItem {
 
     function checkForUpdate() {
         if (Plasmoid.configuration.enableUpdateCheck === false) return
-        updateChecker.connectSource("curl -sS --max-time 10 https://registry.npmjs.org/@anthropic-ai/claude-code/latest 2>/dev/null")
+        updateChecker.connectSource("curl -sS" + curlProxyArg() + " --max-time 10 https://registry.npmjs.org/@anthropic-ai/claude-code/latest 2>/dev/null")
     }
 
     function formatTimeRemaining(resetTime) {
@@ -2329,6 +2483,10 @@ PlasmoidItem {
                 parts.push(i18n.tr("Codex") + " " + root.codexSessionLabel + ": " + formatCodexPercent(root.codexSessionUsagePercent, true, true))
             if (root.codexHasWeeklyData)
                 parts.push(i18n.tr("Codex") + " " + root.codexWeeklyLabel + ": " + formatCodexPercent(root.codexWeeklyUsagePercent, true, true))
+        }
+        if (root.serviceProblem) {
+            for (var j = 0; j < root.serviceIssues.length; j++)
+                parts.push("⚠ " + root.serviceIssues[j].name + ": " + root.serviceStatusText(root.serviceIssues[j].status))
         }
         return parts.join(" | ")
     }

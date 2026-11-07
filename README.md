@@ -25,6 +25,7 @@ This is [izll/plasma-claude-usage](https://github.com/izll/plasma-claude-usage) 
 - **Classic Popup**: Traditional layout with progress bars (switchable in settings)
 - **Desktop Notifications**: Alerts when usage crosses thresholds (50/80/95% session, 95% weekly, quota reset)
 - **Update Checker**: Orange dot on panel icon when a new Claude Code version is available
+- **Claude Service Status**: A card in the popup and a red dot on the panel icon while Claude Code or the Claude API is degraded or down on [status.claude.com](https://status.claude.com) (can be turned off)
 - **Widget Update Notice**: Green badge in the popup when a newer version of the widget is on the KDE Store, opening "Get New Widgets" (off by default in this fork: the Store entry is upstream's package, which would replace the fork and drop Codex)
 - **Process Visibility**: Hide widget or usage when Claude is not running
 - **Configurable Refresh**: Default 5 min polling (adjustable in settings)
@@ -33,6 +34,7 @@ This is [izll/plasma-claude-usage](https://github.com/izll/plasma-claude-usage) 
 - **Stale Detection**: Widget dims when data is outdated
 - **Error Handling**: Clear messages when not logged in, token expired, or rate limited
 - **Custom API Support**: Optional proxy/gateway with custom base URL and API key
+- **Proxy Support**: Optional HTTP, HTTPS or SOCKS5 proxy for the widget's own requests (Account tab)
 - **Custom Credentials Location**: Point the widget at another `.credentials.json` or Claude config folder
 - **Configurable Background Opacity**: Adjustable transparency for desktop placement
 - **15 Languages**: EN, HU, DE, FR, ES, IT, PT, RU, PL, NL, TR, JA, KO, ZH-CN, ZH-TW
@@ -77,10 +79,10 @@ kpackagetool6 -t Plasma/Applet -i .
 
 Right-click the widget and select **Configure...** to open the settings. They are grouped into tabs:
 
-- **General**: language, refresh interval, notifications, update check, Codex (on/off and its two panel windows), colors, visibility when Claude is not running
+- **General**: language, refresh interval, notifications, update checks, service status, Codex (on/off and its two panel windows), colors, visibility when Claude is not running
 - **Panel**: style, what to show, layout, metrics size, margin, ring center and logo size, window labels, icon
 - **Popup**: card or classic style, scrolling, desktop background opacity, card order, quick links
-- **Account**: credentials location, automatic session refresh, custom API
+- **Account**: credentials location, automatic session refresh, custom API, proxy
 
 ### Credentials Location (optional)
 
@@ -182,6 +184,8 @@ claude-usage-widget/
 │   │   ├── CodexBadge.qml     # Codex marker next to the Codex panel metrics (fork)
 │   │   ├── FullView.qml       # Card popup with drag & drop
 │   │   ├── UsageRing.qml      # Anti-aliased progress ring component
+│   │   ├── CacheStore.qml     # Usage cache in LocalStorage (SQLite)
+│   │   ├── ServiceStatusCard.qml # status.claude.com problem card
 │   │   ├── ModelRow.qml       # Model breakdown row component
 │   │   ├── TrendChart.qml     # 7-day trend chart component
 │   │   ├── configGeneral.qml  # Settings: General tab

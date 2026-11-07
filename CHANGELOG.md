@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1.1] - 2026-11-07 (Codex fork)
+
+### Fixed
+
+- Merged upstream v2.5.3 – v2.6.1. Among them: the plasmashell crash after a token refresh while rate limited (v2.5.4; the fork's token watcher had the same bug, and the trigger happens routinely while the usage API answers 429), and the bogus "Breakdown 0%" model row (v2.5.3)
+
+### Changed
+
+- The cache follows upstream into LocalStorage (`CacheStore.qml`). The fork's split timestamps carry over: the stored row holds Claude's and Codex's own last-success times (`timestamp`, `codexTimestamp`) rather than the save time, and the config fallback keeps `usageCacheTime` and `codexCacheTime`
+
+## [2.6.1] - 2026-11-04
+
+### Added
+
+- **Proxy setting** (Account tab → Network): an HTTP, HTTPS or SOCKS5 proxy for the widget's own requests (usage, service status, update checks), e.g. `socks5h://127.0.0.1:1080`. Empty keeps connecting directly, and curl still honours `HTTPS_PROXY` / `ALL_PROXY`. Not used with a custom base URL ([#34](https://github.com/izll/plasma-claude-usage/issues/34), thanks @navrocky)
+
+## [2.6.0] - 2026-11-04
+
+### Added
+
+- **Claude service status**: the widget reads status.claude.com at the refresh interval. While the `Claude Code` or `Claude API (api.anthropic.com)` component is degraded or down, a card above the usage data shows the component, its status and the incident title, and a click opens the status page. The panel icon gets a red dot and the tooltip lists the problem. Maintenance and the other components on the status page are ignored. Can be turned off with "Check status.claude.com" ([#33](https://github.com/izll/plasma-claude-usage/pull/33), thanks @noctuum)
+
+## [2.5.4] - 2026-10-30
+
+### Fixed
+
+- **plasmashell crash after a token refresh while rate limited**: the token watcher cleared the rate limit state inside its own data handler, which disconnected its source while `plasma5support` was still delivering that data. `plasma5support` then wrote into the relay it had just deleted, and plasmashell later died with SIGSEGV in `QV4::ExecutableAllocator::allocate`. The reset now runs after the delivery ([#32](https://github.com/izll/plasma-claude-usage/pull/32), thanks @noctuum)
+
+## [2.5.3] - 2026-10-25
+
+### Changed
+
+- The usage cache moved from the widget's settings to LocalStorage (SQLite): Plasma's layout file (`plasma-org.kde.plasma.desktop-appletsrc`) is no longer rewritten every 5 minutes, and instances showing the same account share one cache and trend history again. Without the LocalStorage module (a separate package on Debian and Ubuntu) the widget keeps using its settings ([#28](https://github.com/izll/plasma-claude-usage/pull/28), thanks @gdevenyi, who also tracked down the 2.5.2 memory leak independently)
+
+### Fixed
+
+- **Bogus "Breakdown" model row**: the usage API now returns `seven_day_breakdown`, a per-surface summary rather than a limit, and the popup showed it as "Breakdown 0%" in place of the real model limits (e.g. Fable from the `limits` array). Only `seven_day_*` entries with a numeric `utilization` count as model limits now
 ## [2.5.2.1] - 2026-10-22 (Codex fork)
 
 ### Fixed
@@ -316,6 +353,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable refresh interval
 - Error handling for login issues
 
+[2.6.1]: https://github.com/izll/plasma-claude-usage/compare/v2.6.0...v2.6.1
+[2.6.0]: https://github.com/izll/plasma-claude-usage/compare/v2.5.4...v2.6.0
+[2.5.4]: https://github.com/izll/plasma-claude-usage/compare/v2.5.3...v2.5.4
+[2.5.3]: https://github.com/izll/plasma-claude-usage/compare/v2.5.2...v2.5.3
 [2.5.2]: https://github.com/izll/plasma-claude-usage/compare/v2.5.1...v2.5.2
 [2.5.1]: https://github.com/izll/plasma-claude-usage/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/izll/plasma-claude-usage/compare/v2.4.2...v2.5.0
